@@ -1,224 +1,505 @@
-# Graphite Trust NFT System: Contract Architecture
+# Graphite Trust NFT System: Detailed Contract Architecture
 
-## System Overview
+## 1. Introduction
 
-The Graphite Trust NFT System is designed to create a sybil-resistant ecosystem that leverages Graphite's native reputation and KYC systems. The architecture consists of several interoperating smart contracts that manage NFT badges, trust scores, and token airdrops.
+The Graphite Trust NFT System is a decentralized application designed to create a sybil-resistant ecosystem. It leverages Graphite's native reputation, KYC (Know Your Customer), and account activation (Fee) systems. The architecture comprises several interoperating smart contracts managing dynamic NFT badges, trust scores (derived from Graphite's reputation), and token airdrops.
+
+This document provides a low-level technical description of each smart contract, its functionalities, and its interactions within the ecosystem and with Graphite's core infrastructure.
+
+**Key Change from Previous Architecture**: The system has been refactored to remove internal interface abstractions (like `IGraphiteKYC`, `IGraphiteFee`, `IGraphiteFilter`). The primary contracts (`GraphiteReputationEcosystem`, `GraphiteAirdropFactory`, `SybilResistantAirdrop`) now interact *directly* with Graphite's official system contracts using their fixed addresses and native ABIs.
+
+## 2. System Diagram
 
 ```
 ┌─────────────────────────────────┐
-│  GraphiteReputationEcosystem    │
-│                                 │
-│  - Coordinates all components   │
+│  GraphiteReputationEcosystem    │(Orchestrator)
 │  - Manages user interactions    │
-└───────────┬──────────┬──────────┘
-            │          │
-            ▼          ▼
-┌─────────────────┐  ┌─────────────────┐
-│  GraphiteTrustNFT│  │GraphiteAirdrop  │
-│                 │  │Factory          │
-│  - Badge NFTs   │  │                 │
-│  - Tier system  │  │ - Creates       │
-└────────┬────────┘  │   airdrops      │
-         │           └────────┬────────┘
-         │                    │
-         ▼                    ▼
-┌─────────────────┐  ┌─────────────────┐
-│ GraphiteTrust   │  │ SybilResistant  │
-│ ScoreAdapter    │  │ Airdrop         │
-│                 │  │                 │
-│ - Bridge to     │  │ - Token         │
-│   Reputation    │  │   distribution  │
-└────────┬────────┘  └────────┬────────┘
-         │                    │
-         ▼                    ▼
-┌─────────────────────────────────────┐
-│       Graphite System Contracts      │
-│                                      │
-│  - Reputation (0x...1008)            │
-│  - KYC (0x...1001)                   │
-│  - Activation (0x...1000)            │
-│  - Filter (0x...1002)                │
-└──────────────────────────────────────┘
+│  - Calls Graphite System Contracts│
+│  - Owns GraphiteTrustNFT        │
+└───────┬────┬─────┬────┬────────┘
+        │    │     │    │
+        ▼    │     ▼    │
+┌───────────────┐ │ ┌───────────────┐
+│GraphiteTrustNFT │ │GraphiteAirdrop│
+│- ERC721 Badges│ │Factory        │
+│- Dynamic URI  │ │- Creates Sybil│
+│- Tier System  │ │ ResistantAidrops│
+└───────┬───────┘ │└───────┬───────┘
+        │         │        │
+        ▼         │        ▼
+┌───────────────┐ │ ┌────────────────────┐
+│GraphiteTrust  │ │ │SybilResistantAirdrop │ (Instance)
+│ScoreAdapter   │ │ │- Token Distribution │
+│- Converts Rep │ │ │- Enforces Eligibility│
+│  to TrustScore│ │ │- Calls Graphite Sys │
+└───────┬───────┘ │ └──────────┬─────────┘
+        │         │            │
+        └─────────┼────────────┘
+                  │
+                  ▼
+┌───────────────────────────────────────────────────┐
+│              Graphite System Contracts            │
+│                                                   │
+│  - Reputation (REPUTATION_CONTRACT_ADDRESS)       │
+│  - KYC (KYC_CONTRACT_ADDRESS)                     │
+│  - Fee/Activation (FEE_CONTRACT_ADDRESS)          │
+│  - Filter (FILTER_CONTRACT_ADDRESS)               │
+└───────────────────────────────────────────────────┘
 ```
 
-## Contract Components
+**Fixed Graphite System Contract Addresses:**
+*   **KYC Contract**: `0x0000000000000000000000000000000000001001`
+*   **Fee/Activation Contract**: `0x0000000000000000000000000000000000001000`
+*   **Reputation Contract**: `0x0000000000000000000000000000000000001008`
+*   **Filter Contract**: `0x0000000000000000000000000000000000001002`
 
-### 1. GraphiteReputationEcosystem
+## 3. Core Contract Details
 
-**Purpose**: Central contract that orchestrates interactions between all components.
+### 3.1. `GraphiteTrustScoreAdapter.sol`
 
-**Key Functions**:
-- `mintNFT()`: Mints a trust badge NFT for a user
-- `updateTrustScore(tokenId)`: Updates an NFT's trust score
-- `getEligibleAirdrops()`: Lists airdrops a user is eligible for
-- `activateAccount()`: Activates a user's Graphite account
-- `setKYCFilter(level)`: Sets a user's KYC filter level
+**Source**: `contract/hardhat/contracts/GraphiteTrustScoreAdapter.sol` (or `contract/src/GraphiteTrustScoreAdapter.sol`)
 
-**Interactions**:
-- Calls `GraphiteTrustNFT` for badge creation and management
-- Calls `GraphiteAirdropFactory` to track airdrops
-- Interacts with Graphite system contracts
+**Purpose**: This contract acts as a bridge, converting raw reputation scores from Graphite's native `Reputation` contract into a 0-1000 trust score compatible with the ecosystem's tiering system. The `TestAdapter.sol` provides a concrete implementation of this scaling.
 
-### 2. GraphiteTrustNFT
+**Interfaces Implemented**: `IGraphiteTrustScore`
 
-**Purpose**: ERC721 token representing a user's trust level with dynamic metadata.
+#### Key State Variables:
+*   `REPUTATION_CONTRACT_ADDRESS` (public constant address): `0x0000000000000000000000000000000000001008`. The official Graphite Reputation contract.
+*   `reputationContract` (private IGraphiteReputation): Instance of the Graphite Reputation contract.
+*   `MAX_REPUTATION` (private constant uint256): `650`. The conceptual maximum score from Graphite's `Reputation` contract (as it sums components that can lead to approximately this value, though it's not a hard cap in the Graphite contract itself).
+*   `MAX_TRUST_SCORE` (private constant uint256): `1000`. The maximum score in this ecosystem's trust score system.
 
-**Key Features**:
-- Dynamic trust badges that evolve with user's trust score
-- Customizable badge types, names, and messages
-- Verification status for special badges
-- Tier-based visual representation (1-5 tiers)
+#### Core Functions:
 
-**Key Functions**:
-- `mint()`: Mints a new trust badge
-- `refreshTrustScore(tokenId)`: Updates a badge's trust score
-- `customizeBadge(tokenId, badgeType, name, message)`: Customizes a badge
-- `tokenURI(tokenId)`: Returns badge metadata URI
+*   **`constructor()`**:
+    *   Initializes `reputationContract` with `REPUTATION_CONTRACT_ADDRESS`.
 
-### 3. GraphiteTrustScoreAdapter
+*   **`getTrustScore(address user) external view returns (uint256 trustScore)`**:
+    *   **Purpose**: Retrieves the Graphite reputation for the `user`, scales it, and returns the ecosystem-specific trust score.
+    *   **Logic**:
+        1.  Calls `reputationContract.getReputation(user)` to get the raw score (0-approx 650). Graphite's `getReputation` function returns a score that is already effectively multiplied by 100 (e.g., a true score of 6.5 is returned as 650).
+        2.  Scales this score: `trustScore = (reputationScore * MAX_TRUST_SCORE) / MAX_REPUTATION`.
+        3.  Caps `trustScore` at `MAX_TRUST_SCORE` (1000).
+    *   **Returns**: The calculated trust score (0-1000).
 
-**Purpose**: Adapter that bridges between Graphite's Reputation system and our Trust Score interface.
+*   **`getTierLevel(uint256 trustScore) external pure returns (uint256 tier)`**:
+    *   **Purpose**: Determines the user's tier based on their trust score.
+    *   **Logic**:
+        *   `trustScore < 200`: Tier 1 (Beginner)
+        *   `trustScore < 400`: Tier 2 (Novice)
+        *   `trustScore < 600`: Tier 3 (Trusted)
+        *   `trustScore < 800`: Tier 4 (Established)
+        *   `else`: Tier 5 (Elite)
+    *   **Returns**: Tier level (1-5).
 
-**Key Functions**:
-- `getTrustScore(address)`: Gets trust score (0-1000) by scaling reputation
-- `getTierLevel(trustScore)`: Determines tier level (1-5) from trust score
-- `meetsTrustThreshold(address, minScore)`: Checks if an address meets a minimum trust score
+*   **`meetsTrustThreshold(address user, uint256 minScore) external view returns (bool meets)`**:
+    *   **Purpose**: Checks if a user's trust score meets a minimum threshold.
+    *   **Logic**: Calls `getTrustScore(user)` and compares it against `minScore`.
+    *   **Returns**: `true` if `getTrustScore(user) >= minScore`, `false` otherwise.
 
-**Implementation Details**:
-- Connects to Graphite's Reputation contract at `0x0000000000000000000000000000000000001008`
-- Scales reputation scores (0-6.5) to trust scores (0-1000) using a scaling factor of 154
-- Maps scores to tiers:
-  - Tier 1 (Beginner): 0-199
-  - Tier 2 (Novice): 200-399
-  - Tier 3 (Trusted): 400-599
-  - Tier 4 (Established): 600-799
-  - Tier 5 (Elite): 800-1000
+### 3.2. `GraphiteTrustNFT.sol`
 
-### 4. GraphiteAirdropFactory
+**Source**: `contract/src/GraphiteTrustNFT.sol` or `contract/hardhat/contracts/GraphiteTrustNFT.sol`
 
-**Purpose**: Factory contract for creating and managing sybil-resistant token airdrops.
+**Purpose**: An ERC721 token contract where each NFT represents a user's trust badge. The NFT's metadata (and thus appearance) can be dynamic, reflecting the user's trust score and customizations. This contract is typically owned by `GraphiteReputationEcosystem`.
 
-**Key Functions**:
-- `createAirdrop(tokenAddress, merkleRoot, requirements...)`: Creates a new airdrop
-- `getAirdrops()`: Lists all airdrops created by the factory
-- `getCreatorAirdrops(address)`: Lists airdrops created by a specific address
+**Inherits**: `ERC721Enumerable`, `Ownable`
 
-**Features**:
-- Preset templates with different trust/KYC requirements
-- Ownership tracking for created airdrops
-- Filtering capabilities for airdrop discovery
+#### Key State Variables:
+*   `trustScoreContract` (public IGraphiteTrustScore): Address of the trust score adapter (e.g., `GraphiteTrustScoreAdapter` or `TestAdapter`).
+*   `_customBaseURI` (private string): A base URI prefix for token metadata, primarily for off-chain resolution.
+*   `metadataServer` (public string): URL of the server that generates detailed badge metadata.
+*   `_lastTokenId` (private uint256): Counter for minting new token IDs.
+*   `lastTrustScore` (mapping(uint256 => uint256)): Stores the trust score associated with a `tokenId` at the time of its last refresh or mint.
+*   `_badgeData` (mapping(uint256 => BadgeData)): Stores customization data for each `tokenId`.
+*   `lastCustomized` (mapping(uint256 => uint256)): Timestamp of the last customization for a `tokenId`.
+*   `MAX_TRUST_SCORE` (private constant uint256): `1000`.
 
-### 5. SybilResistantAirdrop
+#### Structs:
+*   **`BadgeData`**:
+    *   `badgeType` (uint8): Badge template identifier (1-10).
+    *   `badgeName` (string): Custom name for the badge.
+    *   `badgeMessage` (string): Custom message on the badge.
+    *   `verified` (bool): Special status, typically set by the contract owner.
 
-**Purpose**: Contract for token distributions that enforces reputation-based eligibility.
+#### Events:
+*   `TrustScoreRefreshed(uint256 indexed tokenId, uint256 newScore)`
+*   `BadgeCustomized(uint256 indexed tokenId, uint8 badgeType, string badgeName)`
+*   `MetadataRefreshed(uint256 indexed tokenId)`: Emitted on score refresh or any customization, signaling metadata might need updating.
 
-**Key Functions**:
-- `claim(amount, proof)`: Claims tokens if eligible and verified by Merkle proof
-- `setRequirements(trustScore, kycLevel, accountAge)`: Sets eligibility requirements
-- `isEligible(address)`: Checks if an address meets all requirements
+#### Errors:
+*   `InsufficientTrustForCustomization()`
+*   `NotTokenOwner()`
+*   `InvalidBadgeType()`
+*   `TokenDoesNotExist()`
 
-**Key Requirements**:
-- Minimum trust score (default: 500)
-- Minimum KYC level (default: 1)
-- Minimum account age (default: 30 days)
-- Minimum reputation score (default: 2.0)
+#### Core Functions:
 
-**Security Features**:
-- Merkle proof verification
-- Blacklist for known Sybil attackers
-- Time-based constraints (start/end times)
-- Trust score and KYC verification
+*   **`constructor(string memory name, string memory symbol, address _trustScoreAdapter, string memory baseURI_, string memory _metadataServer)`**:
+    *   Initializes ERC721, sets owner, `trustScoreContract`, `_customBaseURI`, and `metadataServer`.
 
-## Graphite System Contracts
+*   **`mint(address recipient) public payable virtual returns (uint256 tokenId)`**:
+    *   **Purpose**: Mints a new NFT to `recipient`. Typically called by `GraphiteReputationEcosystem`.
+    *   **Requires**: `msg.sender` should be owner (i.e., Ecosystem contract) or have appropriate rights if `payable` is used for a fee (though fees are usually handled by the Ecosystem contract).
+    *   **Logic**:
+        1.  Increments `_lastTokenId` to get a new `tokenId`.
+        2.  Initializes `_badgeData[tokenId]` with default values (badgeType: 1).
+        3.  Calls `trustScoreContract.getTrustScore(recipient)` to get the initial score and stores it in `lastTrustScore[tokenId]`.
+        4.  Mints the NFT using `_mint(recipient, tokenId)`.
+    *   **Returns**: The `tokenId` of the newly minted NFT.
 
-The system integrates with Graphite's native contracts:
+*   **`mintWithModel(address recipient, uint8 badgeType) public payable returns (uint256 tokenId)`**:
+    *   **Purpose**: Mints a new NFT with a specific initial `badgeType`.
+    *   **Logic**: Similar to `mint`, but initializes `_badgeData[tokenId].badgeType` with the provided `badgeType`.
+    *   **Reverts**: `InvalidBadgeType` if `badgeType` is not 1-10.
 
-### 1. Reputation Contract (`0x0000000000000000000000000000000000001008`)
+*   **`setBadgeName(uint256 tokenId, string calldata name) external`**:
+    *   **Purpose**: Allows the token owner to set a custom name for their badge.
+    *   **Requires**: `msg.sender` must be the owner of `tokenId`.
+    *   **Logic**: Updates `_badgeData[tokenId].badgeName` and `lastCustomized[tokenId]`.
+    *   **Emits**: `BadgeCustomized`, `MetadataRefreshed`.
+    *   **Reverts**: `NotTokenOwner`.
 
-Calculates reputation scores based on:
-- Creation date (CD): 0-1 points
-- Activation status (A): 0-1 points
-- KYC level (KYC): 0-3 points
-- Transaction quantity (QTx): 0-1 points
-- Balance difference (Diff): 0-0.5 points
+*   **`setBadgeMessage(uint256 tokenId, string calldata message) external`**:
+    *   **Purpose**: Allows the token owner to set a custom message for their badge.
+    *   **Requires**: `msg.sender` must be the owner of `tokenId`.
+    *   **Logic**: Updates `_badgeData[tokenId].badgeMessage` and `lastCustomized[tokenId]`.
+    *   **Emits**: `MetadataRefreshed`.
+    *   **Reverts**: `NotTokenOwner`.
 
-### 2. KYC Contract (`0x0000000000000000000000000000000000001001`)
+*   **`setBadgeType(uint256 tokenId, uint8 badgeType) external`**:
+    *   **Purpose**: Allows the token owner to change their badge type, subject to trust score requirements.
+    *   **Requires**: `msg.sender` must be the owner of `tokenId`.
+    *   **Logic**:
+        1.  Checks `badgeType` is valid (1-10).
+        2.  Fetches `msg.sender`'s current trust score: `trustScoreContract.getTrustScore(msg.sender)`.
+        3.  Gets `requiredScore` for `badgeType` via `getBadgeTypeRequirement(badgeType)`.
+        4.  Reverts with `InsufficientTrustForCustomization` if `ownerScore < requiredScore`.
+        5.  Updates `_badgeData[tokenId].badgeType` and `lastCustomized[tokenId]`.
+    *   **Emits**: `BadgeCustomized`, `MetadataRefreshed`.
+    *   **Reverts**: `NotTokenOwner`, `InvalidBadgeType`, `InsufficientTrustForCustomization`.
 
-Manages KYC verification levels (0-3).
+*   **`setVerifiedStatus(uint256 tokenId, bool verified) external onlyOwner`**:
+    *   **Purpose**: Allows the contract owner (Ecosystem) to set the verified status of a badge.
+    *   **Logic**: Updates `_badgeData[tokenId].verified`.
+    *   **Emits**: `MetadataRefreshed`.
 
-### 3. Activation Contract (`0x0000000000000000000000000000000000001000`)
+*   **`getBadgeData(uint256 tokenId) external view returns (uint8 badgeType, string memory badgeName, string memory badgeMessage, bool verified)`**:
+    *   **Purpose**: Retrieves the `BadgeData` struct for a token.
 
-Handles account activation status.
+*   **`refreshTrustScore(uint256 tokenId, address userToRefresh) external`**:
+    *   **Purpose**: Updates the `lastTrustScore` for a given `tokenId` based on the current trust score of `userToRefresh`.
+    *   **Requires**:
+        *   `msg.sender` must be the contract owner (Ecosystem) OR `userToRefresh` (if they own the token).
+        *   `tokenId` must exist.
+        *   `userToRefresh` must be the owner of `tokenId`.
+    *   **Logic**:
+        1.  Fetches `trustScoreContract.getTrustScore(userToRefresh)`.
+        2.  Updates `lastTrustScore[tokenId]`.
+    *   **Emits**: `TrustScoreRefreshed`, `MetadataRefreshed`.
+    *   **Reverts**: `TokenDoesNotExist`, `NotTokenOwner`, custom require `Caller not authorized`.
 
-### 4. Filter Contract (`0x0000000000000000000000000000000000001002`)
+*   **`getTierLevel(uint256 trustScore) public pure returns (uint256 tier)`**:
+    *   **Purpose**: Converts a trust score to a tier level (1-5). Mirrors the logic in `GraphiteTrustScoreAdapter`.
 
-Provides transaction filtering based on KYC levels and other criteria.
+*   **`getTierName(uint256 trustScore) public pure returns (string memory tierName)`**:
+    *   **Purpose**: Returns the string name for a given tier level.
 
-## Trust Score & Tier System
+*   **`getBadgeTypeRequirement(uint8 badgeType) public pure returns (uint256 requiredScore)`**:
+    *   **Purpose**: Returns the minimum trust score required to select a given `badgeType`.
+    *   **Logic**:
+        *   `badgeType <= 2`: 0
+        *   `badgeType <= 4`: 200
+        *   `badgeType <= 6`: 400
+        *   `badgeType <= 8`: 600
+        *   `else`: 800
 
-The trust score is a 0-1000 value derived from Graphite's reputation score (0-6.5):
+*   **`tokenURI(uint256 tokenId) public view override returns (string memory)`**:
+    *   **Purpose**: Generates the metadata URI for a token.
+    *   **Logic**: Calls `_buildTokenURI` which constructs a URL using `metadataServer` and various parameters from the token's state (`lastTrustScore`, `_badgeData`, `ownerOf`). This allows for dynamic, off-chain metadata generation.
+    *   **Reverts**: `TokenDoesNotExist`.
 
-```
-Trust Score = Reputation Score × 154 (capped at 1000)
-```
+*   **`setBaseURI(string calldata baseURI_) external onlyOwner`**: Allows owner to update `_customBaseURI`.
+*   **`setMetadataServer(string calldata _metadataServer) external onlyOwner`**: Allows owner to update `metadataServer`.
+*   **`setTrustScoreContract(address _trustScoreContract) external onlyOwner`**: Allows owner to update the `trustScoreContract` address.
 
-This score maps to five tiers that determine visual representation and feature access:
+### 3.3. `GraphiteAirdropFactory.sol`
 
-1. **Tier 1 (0-199)**: Beginner level with basic features
-2. **Tier 2 (200-399)**: Novice level with improved visuals
-3. **Tier 3 (400-599)**: Trusted level with enhanced effects
-4. **Tier 4 (600-799)**: Established level with premium features
-5. **Tier 5 (800-1000)**: Elite level with exclusive effects and features
+**Source**: `contract/hardhat/contracts/GraphiteAirdropFactory.sol`
 
-## Data Flow
+**Purpose**: A factory contract for creating and tracking instances of `SybilResistantAirdrop`. It enforces creator eligibility checks (activation and KYC) by directly interacting with Graphite system contracts.
 
-1. User interactions start at the `GraphiteReputationEcosystem` contract
-2. For trust scores, the request flows through:
-   - Ecosystem → Adapter → Graphite Reputation Contract
-3. For NFT operations, the flow is:
-   - Ecosystem → GraphiteTrustNFT → Adapter (for score)
-4. For airdrops, the flow is:
-   - Ecosystem → AirdropFactory → SybilResistantAirdrop → Adapter (for eligibility)
+**Inherits**: `Ownable`
 
-## Design Patterns
+#### Key State Variables:
+*   `trustScoreContract` (public IGraphiteTrustScore): Address of the trust score adapter.
+*   `kycContract` (public IGraphiteKYC): Instance of the Graphite KYC contract (`0x...1001`).
+*   `feeContract` (public IGraphiteFee): Instance of the Graphite Fee/Activation contract (`0x...1000`).
+*   `KYC_CONTRACT_ADDRESS` (public constant address): `0x0000000000000000000000000000000000001001`.
+*   `FEE_CONTRACT_ADDRESS` (public constant address): `0x0000000000000000000000000000000000001000`.
+*   `airdrops` (SybilResistantAirdrop[] public): Array storing all created airdrop contract instances.
+*   `airdropCreators` (mapping(address => address) public): Maps airdrop contract address to its creator.
+*   `creatorAirdrops` (mapping(address => SybilResistantAirdrop[]) public): Maps creator address to an array of their created airdrops.
 
-The system employs several design patterns:
+#### Events:
+*   `AirdropCreated(address indexed creator, address indexed tokenAddress, address airdropContract)`
 
-1. **Adapter Pattern**: `GraphiteTrustScoreAdapter` adapts Graphite's Reputation interface to our TrustScore interface
-2. **Factory Pattern**: `GraphiteAirdropFactory` creates and tracks airdrop instances
-3. **Facade Pattern**: `GraphiteReputationEcosystem` provides a simplified interface to the entire system
-4. **Proxy Pattern**: NFT metadata is generated via proxy to allow dynamic changes
+#### Errors:
+*   `InvalidTokenAddress()`
+*   `InvalidMerkleRoot()`
+*   `AccountNotActivated()`
+*   `InsufficientKYCLevel()` (for the airdrop creator)
 
-## Deployment Sequence
+#### Core Functions:
 
-1. Deploy `GraphiteTrustScoreAdapter`
-2. Deploy `GraphiteTrustNFT` with adapter address
-3. Deploy `GraphiteAirdropFactory` with adapter address
-4. Deploy `GraphiteReputationEcosystem` with NFT and factory addresses
-5. Transfer NFT ownership to the ecosystem contract
+*   **`constructor(address _trustScoreAdapter, address _feeContractAddress)`**:
+    *   Initializes owner, `trustScoreContract`.
+    *   Initializes `kycContract` with `KYC_CONTRACT_ADDRESS`.
+    *   Initializes `feeContract` with `_feeContractAddress` (which should be Graphite's `FEE_CONTRACT_ADDRESS`).
 
-## Security Considerations
+*   **`createAirdrop(address tokenAddress, bytes32 merkleRoot, uint256 requiredTrustScore, uint256 requiredKYCLevel, uint256 startTime, uint256 endTime) external returns (SybilResistantAirdrop newAirdrop)`**:
+    *   **Purpose**: Creates and deploys a new `SybilResistantAirdrop` contract instance.
+    *   **Logic**:
+        1.  Validates `tokenAddress != address(0)` and `merkleRoot != bytes32(0)`.
+        2.  **Creator Eligibility Check (Direct Graphite Calls)**:
+            *   Calls `feeContract.paidFee(msg.sender)`: Reverts with `AccountNotActivated` if `false`. (Interaction with `0x...1000`)
+            *   Calls `kycContract.level(msg.sender)`: Reverts with `InsufficientKYCLevel` if `< 1`. (Interaction with `0x...1001`)
+        3.  Deploys a new `SybilResistantAirdrop` contract, passing all constructor arguments.
+        4.  Transfers ownership of the `newAirdrop` contract to `msg.sender`.
+        5.  Stores the `newAirdrop` address in `airdrops`, `airdropCreators`, and `creatorAirdrops`.
+    *   **Emits**: `AirdropCreated`.
+    *   **Returns**: Address of the newly created `SybilResistantAirdrop` contract.
 
-1. **Sybil Resistance**: Multiple mechanisms prevent Sybil attacks:
-   - Reputation scores based on on-chain activity
-   - KYC verification requirements
-   - Account age verification
-   - Transaction history analysis
+*   **`getAllAirdrops() external view returns (SybilResistantAirdrop[] memory)`**: Returns the `airdrops` array.
+*   **`getCreatorAirdrops(address creator) external view returns (SybilResistantAirdrop[] memory)`**: Returns airdrops created by a specific `creator`.
+*   **`getAirdropCount() external view returns (uint256)`**: Returns `airdrops.length`.
+*   **`setTrustScoreContract(address _trustScoreContract) external onlyOwner`**: Updates `trustScoreContract`.
+*   **`setActivationContract(address _activationContract) external onlyOwner`**: Updates `feeContract` (this name is a bit misleading, it should be `setFeeContract`).
+*   **`getKYCLevel(address user) external view returns (uint256 level)`**:
+    *   **Purpose**: View function to check KYC level of any user directly via Graphite's KYC contract.
+    *   **Logic**: Returns `kycContract.level(user)`. (Interaction with `0x...1001`)
 
-2. **Access Control**: Clearly defined ownership and role permissions
+### 3.4. `SybilResistantAirdrop.sol`
 
-3. **Validation**: Input validation and error handling throughout
+**Source**: `contract/hardhat/contracts/SybilResistantAirdrop.sol`
 
-4. **Blacklisting**: Ability to blacklist addresses in airdrops
+**Purpose**: An individual airdrop contract instance, created by `GraphiteAirdropFactory`. It manages the distribution of a specific ERC20 token to eligible users based on Merkle proofs, trust scores, KYC levels, and account activation status, verified through direct calls to Graphite system contracts.
 
-## Integration Points
+**Inherits**: `Ownable`
 
-Frontend applications integrate with the system via:
+#### Key State Variables:
+*   `KYC_CONTRACT_ADDRESS` (public constant address): `0x0000000000000000000000000000000000001001`.
+*   `trustScoreContract` (public IGraphiteTrustScore): Address of the trust score adapter.
+*   `feeContract` (public IGraphiteFee): Instance of Graphite's Fee/Activation contract.
+*   `kycContract` (public IGraphiteKYC): Instance of Graphite's KYC contract.
+*   `token` (public IERC20): The ERC20 token being airdropped.
+*   `merkleRoot` (public bytes32): The Merkle root for verifying claims.
+*   `requiredTrustScore` (public uint256): Minimum trust score for claimants.
+*   `requiredKYCLevel` (public uint256): Minimum KYC level for claimants.
+*   `hasClaimed` (mapping(address => bool) public): Tracks if a user has claimed.
+*   `blacklisted` (mapping(address => bool) public): Tracks blacklisted users.
+*   `startTime` (public uint256): Airdrop start timestamp.
+*   `endTime` (public uint256): Airdrop end timestamp.
 
-1. **NFT Minting & Viewing**: Through the ecosystem and NFT contracts
-2. **Trust Score Display**: Via the adapter contract
-3. **Airdrop Creation & Claiming**: Through the factory and airdrop contracts
-4. **3D Avatar Integration**: Via Ready Player Me integration with trust tier-based effects
+#### Events:
+*   `AirdropClaimed(address indexed user, uint256 amount)`
+*   `BlacklistUpdated(address indexed user, bool isBlacklisted)`
+*   `RequirementsUpdated(uint256 trustScore, uint256 kycLevel)`
+*   `AirdropTimingUpdated(uint256 startTime, uint256 endTime)`
+
+#### Errors:
+*   `AirdropNotStarted()`, `AirdropEnded()`, `AlreadyClaimed()`, `AddressBlacklisted()`
+*   `NotEligible()`, `InvalidMerkleProof()`, `TransferFailed()`
+*   `ArrayLengthMismatch()`, `EndTimeBeforeStartTime()`
+*   `NoTokensToWithdraw()`, `AirdropStillInProgress()`
+
+#### Core Functions:
+
+*   **`constructor(address _token, bytes32 _merkleRoot, address _trustScoreContract, address _feeContractAddress, uint256 _requiredTrustScore, uint256 _requiredKYCLevel, uint256 _startTime, uint256 _endTime)`**:
+    *   Initializes all state variables based on parameters from the factory.
+    *   Sets up `feeContract` with `_feeContractAddress` (Graphite Fee `0x...1000`).
+    *   Sets up `kycContract` with `KYC_CONTRACT_ADDRESS` (`0x...1001`).
+    *   Validates `_endTime > _startTime` if both are non-zero.
+    *   Sets default start/end times if `_startTime` or `_endTime` are zero.
+    *   Ownership is typically transferred by the factory *after* deployment.
+
+*   **`claim(uint256 amount, bytes32[] calldata proof) external`**:
+    *   **Purpose**: Allows a user to claim their airdropped tokens.
+    *   **Logic**:
+        1.  Checks airdrop timing (`startTime`, `endTime`), `hasClaimed[msg.sender]`, `blacklisted[msg.sender]`.
+        2.  Calls `isEligible(msg.sender)` to verify claimant's status (see below). Reverts with `NotEligible` if false.
+        3.  Verifies the `proof` against `merkleRoot` and `keccak256(abi.encodePacked(msg.sender, amount))`. Reverts with `InvalidMerkleProof` on failure.
+        4.  Sets `hasClaimed[msg.sender] = true`.
+        5.  Transfers `amount` of `token` to `msg.sender`. Reverts with `TransferFailed` on failure.
+    *   **Emits**: `AirdropClaimed`.
+
+*   **`isEligible(address user) public view returns (bool eligible)`**:
+    *   **Purpose**: Checks if a user meets all criteria to claim the airdrop.
+    *   **Logic (Direct Graphite Calls)**:
+        1.  Checks activation: `!feeContract.paidFee(user)` -> return `false`. (Interaction with Graphite Fee `0x...1000`)
+        2.  Checks KYC: `kycContract.level(user) < requiredKYCLevel` -> return `false`. (Interaction with Graphite KYC `0x...1001`)
+        3.  Checks Trust Score: `trustScoreContract.getTrustScore(user) < requiredTrustScore` -> return `false`.
+        4.  If all pass, returns `true`.
+
+*   **`getEligibilityDetails(address user) external view returns (bool isActivated, uint256 trustScore, uint256 kycLevel, bool isBlacklisted, bool hasClaimedAirdrop)`**:
+    *   **Purpose**: Provides a detailed breakdown of a user's eligibility status.
+    *   **Logic (Direct Graphite Calls)**:
+        *   `isActivated = feeContract.paidFee(user)` (Graphite Fee `0x...1000`)
+        *   `trustScore = trustScoreContract.getTrustScore(user)`
+        *   `kycLevel = kycContract.level(user)` (Graphite KYC `0x...1001`)
+        *   `isBlacklisted = blacklisted[user]`
+        *   `hasClaimedAirdrop = hasClaimed[user]`
+
+*   **`setBlacklist(address user, bool isBlacklisted) external onlyOwner`**: Updates blacklist status.
+*   **`batchSetBlacklist(address[] calldata users, bool[] calldata statuses) external onlyOwner`**: Batch update blacklist.
+*   **`updateRequirements(uint256 _trustScore, uint256 _kycLevel) external onlyOwner`**: Updates airdrop requirements.
+*   **`updateMerkleRoot(bytes32 _merkleRoot) external onlyOwner`**: Updates Merkle root.
+*   **`updateAirdropTiming(uint256 _startTime, uint256 _endTime) external onlyOwner`**: Updates airdrop timing.
+*   **`withdrawTokens(address _token) external onlyOwner`**: Allows owner to withdraw accidentally sent tokens. If withdrawing the airdrop token, checks that `block.timestamp > endTime`.
+
+### 3.5. `GraphiteReputationEcosystem.sol`
+
+**Source**: `contract/hardhat/contracts/GraphiteReputationEcosystem.sol` (or `contract/src/GraphiteReputationEcosystem.sol`)
+
+**Purpose**: The central orchestrator contract for the ecosystem. It manages NFT minting, account activation, provides aggregated user information by interacting with other ecosystem contracts and Graphite's system contracts directly. This contract typically owns the `GraphiteTrustNFT` contract.
+
+**Inherits**: `Ownable`
+
+#### Key State Variables:
+*   `airdropFactory` (public IGraphiteAirdropFactory): Address of the `GraphiteAirdropFactory`.
+*   `trustNFT` (public IGraphiteTrustNFT): Address of the `GraphiteTrustNFT` contract.
+*   `trustScoreContract` (public IGraphiteTrustScore): Address of the trust score adapter.
+*   `mintCost` (public uint256): Cost to mint an NFT.
+*   `mintingEnabled` (public bool): Flag to enable/disable NFT minting.
+*   `KYC_CONTRACT_ADDRESS`, `FEE_CONTRACT_ADDRESS`, `REPUTATION_CONTRACT_ADDRESS`, `FILTER_CONTRACT_ADDRESS` (public constant address): Fixed addresses of Graphite system contracts.
+*   `kycContract` (private IGraphiteKYC): Instance of Graphite KYC contract.
+*   `feeContract` (private IGraphiteFee): Instance of Graphite Fee/Activation contract.
+*   `reputationContract` (private IGraphiteReputation): Instance of Graphite Reputation contract.
+*   `filterContract` (private IGraphiteFilter): Instance of Graphite Filter contract.
+
+#### Events:
+*   `AccountActivated(address indexed user, uint256 feePaid)`
+*   `NFTMinted(address indexed minter, uint256 indexed tokenId, uint256 mintCostPaid)`
+*   `TrustScoreRefreshed(address indexed user, uint256 indexed tokenId, uint256 newScore)`
+*   `KYCFilterSet(uint256 newLevel)` (Note: This implies the ecosystem sets a global filter, or it might be intended per user via Graphite's Filter contract; the name `setKYCFilter` takes a level but doesn't specify for whom, suggesting a global setting for the ecosystem or a misinterpretation of Graphite's filter which is user-settable for *their* incoming transactions). **Correction**: Graphite's `FilterContract` (`0x...1002`) allows users to set *their own* filter level for transactions *they receive*. The `setKYCFilter` in the ecosystem seems to be for the ecosystem to enforce a minimum KYC level for *its interactions* rather than setting a user's filter on the Graphite system. The `GraphiteReputationEcosystem` does not seem to have a `kycFilterLevel` storage variable, this function directly calls `filterContract.setFilterLevel(level)` which would make the *ecosystem contract itself* set its own incoming transaction filter level on Graphite. This is likely not the intended use if the goal is to check a user's KYC against a general requirement. The `mintNFT` function's KYC check makes more sense: `kycContract.level(msg.sender) >= filterContract.viewFilterLevel()` which implies the ecosystem reads its own filter level set previously by its owner.
+*   `MintCostUpdated(uint256 newCost)`
+*   `MintingStatusUpdated(bool isEnabled)`
+
+#### Errors:
+*   `MintingDisabled()`
+*   `InsufficientMintFee()`
+*   `AccountNotActivated()`
+*   `InsufficientKYCLevel()`
+*   `NotNFTOwner()`
+*   `ContractCallFailed()` (Generic error for failed internal calls to Graphite system contracts)
+
+#### Core Functions:
+
+*   **`constructor(address _airdropFactory, address _trustNFT, address _trustScoreContract, uint256 _mintCost)`**:
+    *   Initializes owner and all contract addresses.
+    *   Sets up instances for `kycContract`, `feeContract`, `reputationContract`, `filterContract` using the constant addresses.
+    *   Sets `mintCost` and `mintingEnabled = true`.
+
+*   **`activateAccount() external payable`**:
+    *   **Purpose**: Allows a user to activate their account on the Graphite network by paying the required fee through this ecosystem contract.
+    *   **Logic (Direct Graphite Call)**:
+        1.  Calls `feeContract.pay{value: msg.value}()`. (Interaction with Graphite Fee `0x...1000`)
+            *   `msg.value` is forwarded. Graphite's `pay()` checks `msg.value >= initialFee` and if `paidFee[sender]` is false.
+    *   **Emits**: `AccountActivated` (with `msg.value` as `feePaid`).
+    *   **Reverts**: If `feeContract.pay()` reverts (e.g., "G000": already paid, "G001": insufficient fee). Bubbles up as `ContractCallFailed` or the specific Graphite error.
+
+*   **`mintNFT() external payable`**:
+    *   **Purpose**: Mints a new `GraphiteTrustNFT` for the `msg.sender`.
+    *   **Requires**: `mintingEnabled == true`, `msg.value == mintCost`.
+    *   **Logic (Direct Graphite Calls & Internal Calls)**:
+        1.  Checks `mintingEnabled` and `msg.value`.
+        2.  **Activation Check**: Calls `feeContract.paidFee(msg.sender)`. Reverts with `AccountNotActivated` if false. (Interaction with Graphite Fee `0x...1000`)
+        3.  **KYC Check**:
+            *   Calls `filterContract.viewFilterLevel()` to get the ecosystem's required KYC filter level. (Interaction with Graphite Filter `0x...1002`)
+            *   Calls `kycContract.level(msg.sender)` to get user's KYC level. (Interaction with Graphite KYC `0x...1001`)
+            *   Reverts with `InsufficientKYCLevel` if `userKYCLevel < ecosystemFilterLevel`.
+        4.  Calls `trustNFT.mint(msg.sender)`.
+    *   **Emits**: `NFTMinted`.
+    *   **Reverts**: `MintingDisabled`, `InsufficientMintFee`, `AccountNotActivated`, `InsufficientKYCLevel`.
+
+*   **`getUserDetails(address user, address airdropAddress) external view returns (UserDetails memory)`**:
+    *   **Purpose**: Aggregates and returns comprehensive details about a user.
+    *   **Logic (Direct Graphite Calls & Internal Calls)**:
+        *   `trustScore = trustScoreContract.getTrustScore(user)`
+        *   `tierName = trustNFT.getTierName(trustScore)`
+        *   `tierLvl = trustNFT.getTierLevel(trustScore)`
+        *   `rawReputation = reputationContract.getReputation(user)` (Graphite Reputation `0x...1008`)
+        *   `activated = feeContract.paidFee(user)` (Graphite Fee `0x...1000`)
+        *   `kycLvl = kycContract.level(user)` (Graphite KYC `0x...1001`)
+        *   `ecosystemKYCFilter = filterContract.viewFilterLevel()` (Graphite Filter `0x...1002` - this ecosystem's own incoming filter level)
+        *   If `airdropAddress != address(0)`:
+            *   `eligible = SybilResistantAirdrop(airdropAddress).isEligible(user)`
+            *   `claimed = SybilResistantAirdrop(airdropAddress).hasClaimed(user)`
+    *   **Returns**: A `UserDetails` struct.
+
+*   **`refreshNFTTrustScore(uint256 tokenId) external`**:
+    *   **Purpose**: Allows a user to refresh the trust score stored on their NFT.
+    *   **Requires**: `msg.sender` must own `tokenId`.
+    *   **Logic (Direct Graphite Calls & Internal Calls)**:
+        1.  Verifies `trustNFT.ownerOf(tokenId) == msg.sender`.
+        2.  **Activation Check**: `feeContract.paidFee(msg.sender)`. Reverts `AccountNotActivated`. (Graphite Fee `0x...1000`)
+        3.  **KYC Check**: `kycContract.level(msg.sender) >= filterContract.viewFilterLevel()`. Reverts `InsufficientKYCLevel`. (Graphite KYC `0x...1001`, Graphite Filter `0x...1002`)
+        4.  Calls `trustNFT.refreshTrustScore(tokenId, msg.sender)`. The score fetched internally by `trustNFT` comes from `trustScoreContract`.
+    *   **Emits**: `TrustScoreRefreshed`.
+    *   **Reverts**: `NotNFTOwner`, `AccountNotActivated`, `InsufficientKYCLevel`.
+
+*   **`getKYCLevel(address user) external view returns (uint256)`**:
+    *   **Logic**: Returns `kycContract.level(user)`. (Interaction with Graphite KYC `0x...1001`)
+
+*   **`getReputationScore(address user) external view returns (uint256)`**:
+    *   **Logic**: Returns `reputationContract.getReputation(user)`. (Interaction with Graphite Reputation `0x...1008`)
+
+*   **`isTransactionAllowed(address sender, address recipient) external view returns (bool)`**:
+    *   **Logic**: Returns `filterContract.filter(sender, recipient)`. (Interaction with Graphite Filter `0x...1002`)
+        *   Note: This checks if `sender`'s KYC level is `>=` `recipient`'s self-set filter level on Graphite.
+
+*   **`setKYCFilter(uint256 level) external onlyOwner`**:
+    *   **Purpose**: Allows the ecosystem owner to set the *ecosystem contract's own* incoming transaction filter level on Graphite.
+    *   **Logic**: Calls `filterContract.setFilterLevel(level)`. (Interaction with Graphite Filter `0x...1002`)
+    *   **Emits**: `KYCFilterSet`.
+
+*   **Owner Functions**: `setMintCost`, `toggleMinting`, `setAirdropFactory`, `setTrustNFT`, `setTrustScoreContract`, `withdraw`.
+
+## 4. Interactions and Data Flow Summary
+
+1.  **User Activation**:
+    *   User calls `GraphiteReputationEcosystem.activateAccount()` (payable).
+    *   Ecosystem calls Graphite Fee Contract (`0x...1000`) `pay{value: msg.value}()`.
+
+2.  **NFT Minting**:
+    *   User calls `GraphiteReputationEcosystem.mintNFT()` (payable with `mintCost`).
+    *   Ecosystem checks:
+        *   Graphite Fee Contract (`0x...1000`) `paidFee(user)`.
+        *   Graphite KYC Contract (`0x...1001`) `level(user)` against Graphite Filter Contract (`0x...1002`) `viewFilterLevel()` (ecosystem's own filter).
+    *   Ecosystem calls `GraphiteTrustNFT.mint(user)`.
+    *   `GraphiteTrustNFT` calls `GraphiteTrustScoreAdapter.getTrustScore(user)` for initial score.
+    *   `GraphiteTrustScoreAdapter` calls Graphite Reputation Contract (`0x...1008`) `getReputation(user)`.
+
+3.  **Airdrop Creation**:
+    *   Creator calls `GraphiteAirdropFactory.createAirdrop(...)`.
+    *   Factory checks creator:
+        *   Graphite Fee Contract (`0x...1000`) `paidFee(creator)`.
+        *   Graphite KYC Contract (`0x...1001`) `level(creator)`.
+    *   Factory deploys `SybilResistantAirdrop` instance.
+
+4.  **Airdrop Claim**:
+    *   User calls `SybilResistantAirdrop.claim(amount, proof)`.
+    *   Airdrop instance calls its own `isEligible(user)`:
+        *   Checks Graphite Fee Contract (`0x...1000`) `paidFee(user)`.
+        *   Checks Graphite KYC Contract (`0x...1001`) `level(user)` against `requiredKYCLevel`.
+        *   Checks `GraphiteTrustScoreAdapter.getTrustScore(user)` against `requiredTrustScore`.
+            *   Adapter calls Graphite Reputation (`0x...1008`) `getReputation(user)`.
+
+5.  **Fetching User Details**:
+    *   Frontend calls `GraphiteReputationEcosystem.getUserDetails(user, airdropAddr)`.
+    *   Ecosystem makes multiple calls: `GraphiteTrustScoreAdapter`, `GraphiteTrustNFT`, Graphite System Contracts (Reputation, Fee, KYC, Filter), and optionally `SybilResistantAirdrop` instance.
+
+This refactored architecture ensures that all checks against Graphite's core systems (Activation, KYC, Reputation, Filtering) are done by directly querying the authoritative Graphite system contracts, enhancing the reliability and directness of these interactions. The adapter pattern is maintained for converting Graphite's reputation score into the ecosystem's specific trust score and tiering model.
 
 ## Conclusion
 

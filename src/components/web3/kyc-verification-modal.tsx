@@ -1,11 +1,14 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { motion } from "motion/react";
 import { cn } from "@/lib/utils";
 import { useKYC } from "@/lib/hooks/useKYC";
 import { useTrustScore } from "@/lib/hooks/useTrustScore";
 import { useAccount } from "wagmi";
+import { Button } from "@/components/ui/button";
+import { CustomConnectButton } from "./connect-wallet-button";
+import { formatEther } from "viem";
 
 interface KycVerificationModalProps {
   isOpen: boolean;
@@ -13,25 +16,26 @@ interface KycVerificationModalProps {
   onVerificationComplete: (trustScore: number) => void;
 }
 
-// Simplified KYC steps for blockchain integration
 const kycSteps = [
   {
     id: "connect",
     title: "Connect Wallet",
-    description: "Verify your blockchain identity",
-    fields: [],
+    description: "Please connect your wallet to begin the verification process.",
   },
   {
-    id: "verification",
-    title: "Request Verification",
-    description: "Submit your wallet for KYC verification",
-    fields: [],
+    id: "activate",
+    title: "Activate Account",
+    description: "Activate your account on the Graphite network. This requires a one-time fee.",
+  },
+  {
+    id: "request_kyc",
+    title: "Request KYC Verification",
+    description: "Submit your wallet for KYC Level 1 verification.",
   },
   {
     id: "complete",
-    title: "Verification Complete",
-    description: "Your verification request has been submitted",
-    fields: [],
+    title: "Verification Submitted",
+    description: "Your KYC verification request has been submitted.",
   },
 ];
 
@@ -41,105 +45,159 @@ export function KycVerificationModal({
   onVerificationComplete,
 }: KycVerificationModalProps) {
   const [currentStep, setCurrentStep] = useState(0);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const { address } = useAccount();
-  const { kycLevel, requestKycVerification, isPending, isSuccess, refetch } = useKYC();
+  const [error, setError] = useState<string | null>(null);
+  const [checkedInitial, setCheckedInitial] = useState(false);
+  const { address, isConnected } = useAccount();
+  const {
+    hasPaidFee,
+    initialActivationFee,
+    activateAccount,
+    isActivating,
+    isActivationSuccess,
+    refetchPaidFeeStatus,
+    kycLevel,
+    requestKycVerification,
+    isRequestingKyc,
+    isKycRequestSuccess,
+    refetchKycLevel,
+    isReading: isKycHookReading,
+    isProcessing: isKycHookProcessing,
+    paidFeeStatusError,
+    initialFeeError,
+    kycLevelError,
+  } = useKYC();
   const { trustScore, isLoading: isTrustScoreLoading } = useTrustScore(address);
 
-  // Move to first step if wallet is connected, otherwise stay at connect wallet step
-  useEffect(() => {
-    if (address && currentStep === 0) {
-      setCurrentStep(1);
-    }
-  }, [address, currentStep]);
+  const proceedToNextStep = useCallback(() => {
+    setCurrentStep((prev) => Math.min(prev + 1, kycSteps.length - 1));
+  }, []);
 
-  // When verification is successful, move to completion step
+  // Only handle wallet connection status changes
   useEffect(() => {
-    if (isSuccess) {
-      setCurrentStep(2);
-      setIsSubmitting(false);
-      
-      // Refetch KYC level after success
-      refetch();
+    if (isConnected && currentStep === 0) {
+      proceedToNextStep();
+    } else if (!isConnected && currentStep > 0) {
+      setCurrentStep(0);
     }
-  }, [isSuccess, refetch]);
+  }, [isConnected, currentStep, proceedToNextStep]);
+
+  // Initial data fetch when modal opens
+  useEffect(() => {
+    if (isOpen && isConnected && !checkedInitial) {
+      refetchPaidFeeStatus();
+      refetchKycLevel();
+      setCheckedInitial(true);
+    } else if (!isOpen) {
+      setCheckedInitial(false);
+    }
+  }, [isOpen, isConnected, checkedInitial, refetchPaidFeeStatus, refetchKycLevel]);
+
+  // Check activation status when on step 1
+  useEffect(() => {
+    if (currentStep === 1 && hasPaidFee === true) {
+      proceedToNextStep();
+    }
+  }, [hasPaidFee, currentStep, proceedToNextStep]);
+  
+  // Handle activation success
+  useEffect(() => {
+    if (isActivationSuccess) {
+      refetchPaidFeeStatus();
+    }
+  }, [isActivationSuccess, refetchPaidFeeStatus]);
+
+  // Check KYC level when on step 2
+  useEffect(() => {
+    if (currentStep === 2 && kycLevel !== undefined && kycLevel !== null && kycLevel >= BigInt(1)) {
+      proceedToNextStep();
+    }
+  }, [currentStep, kycLevel, proceedToNextStep]);
+
+  // Handle KYC request success
+  useEffect(() => {
+    if (isKycRequestSuccess) {
+      refetchKycLevel();
+      proceedToNextStep();
+    }
+  }, [isKycRequestSuccess, refetchKycLevel, proceedToNextStep]);
+
+  // More specific error handling based on current step
+  useEffect(() => {
+    let message = null;
+    if (currentStep === 1) {
+      if (paidFeeStatusError && typeof paidFeeStatusError.message === 'string') {
+        message = `Error checking activation status: ${paidFeeStatusError.message}`;
+      } else if (initialFeeError && typeof initialFeeError.message === 'string') {
+        message = `Error fetching activation fee: ${initialFeeError.message}`;
+      }
+    } else if (currentStep === 2) {
+      if (kycLevelError && typeof kycLevelError.message === 'string') {
+        message = `Error checking KYC level: ${kycLevelError.message}`;
+      }
+    }
+    if (message) {
+      setError(message);
+    }
+  }, [currentStep, paidFeeStatusError, initialFeeError, kycLevelError]);
 
   if (!isOpen) return null;
 
-  const handleNextStep = async () => {
-    if (currentStep < kycSteps.length - 1) {
-      // If we're on the verification step, submit the verification request
-      if (currentStep === 1) {
-        setIsSubmitting(true);
-        try {
-          await requestKycVerification();
-          // Note: state updates will happen in the useEffect when isSuccess changes
-        } catch (error) {
-          console.error("Error requesting KYC verification:", error);
-          setIsSubmitting(false);
-        }
-      } else {
-        setCurrentStep(currentStep + 1);
-      }
-    } else {
-      // Complete the verification process
-      handleComplete();
+  const handleActivate = async () => {
+    setError(null);
+    if (!activateAccount) return;
+    try {
+      await activateAccount();
+    } catch (e: any) {
+      console.error("Error activating account:", e);
+      setError(e.message || "Failed to activate account.");
     }
   };
 
-  const handlePrevStep = () => {
-    if (currentStep > 0) {
-      setCurrentStep(currentStep - 1);
+  const handleRequestKyc = async () => {
+    setError(null);
+    if (!requestKycVerification) return;
+    try {
+      await requestKycVerification(1);
+    } catch (e: any) {
+      console.error("Error requesting KYC:", e);
+      setError(e.message || "Failed to request KYC.");
     }
   };
 
-  const handleComplete = () => {
-    setIsSubmitting(true);
-    
-    // Use the actual trust score from the contract
-    setTimeout(() => {
-      onVerificationComplete(trustScore);
-      setIsSubmitting(false);
-      onClose();
-    }, 1000);
+  const handleCompleteFlow = () => {
+    onVerificationComplete(trustScore || 0);
+    onClose();
   };
 
   const step = kycSteps[currentStep];
   const isLastStep = currentStep === kycSteps.length - 1;
-  const isFirstStep = currentStep === 0;
+
+  const isLoading = isKycHookReading || isTrustScoreLoading;
+  const isProcessing = isKycHookProcessing;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/80" onClick={onClose}></div>
+      <div className="absolute inset-0 bg-black/80" onClick={!isProcessing ? onClose : undefined}></div>
       
       <div className="relative z-10 w-full max-w-md rounded-xl bg-gray-900 p-6 shadow-2xl">
-        <button
-          className="absolute right-4 top-4 rounded-full bg-white/10 p-2 text-white hover:bg-white/20"
-          onClick={onClose}
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="18"
-            height="18"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
+        {!isProcessing && (
+          <button
+            className="absolute right-4 top-4 rounded-full bg-white/10 p-2 text-white hover:bg-white/20"
+            onClick={onClose}
           >
-            <path d="M18 6L6 18M6 6l12 12"></path>
-          </svg>
-        </button>
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M18 6L6 18M6 6l12 12"></path>
+            </svg>
+          </button>
+        )}
 
         <div className="mb-6">
-          <h2 className="text-2xl font-bold text-white">KYC Verification</h2>
+          <h2 className="text-2xl font-bold text-white">KYC & Activation</h2>
           <p className="text-gray-400">
-            Complete verification to increase your trust score
+            Complete the steps to activate your account and verify your identity.
           </p>
         </div>
 
-        {/* Progress bar */}
         <div className="mb-8">
           <div className="mb-2 flex justify-between text-xs">
             <span className="text-blue-400">Step {currentStep + 1} of {kycSteps.length}</span>
@@ -153,158 +211,117 @@ export function KycVerificationModal({
           </div>
         </div>
 
+        {error && (
+          <div className="mb-4 rounded-md bg-red-500/20 p-3 text-sm text-red-400">
+            <p><strong>Error:</strong> {error}</p>
+          </div>
+        )}
+
         <motion.div
           key={step.id}
           initial={{ opacity: 0, x: 20 }}
           animate={{ opacity: 1, x: 0 }}
           exit={{ opacity: 0, x: -20 }}
           transition={{ duration: 0.3 }}
-          className="mb-8"
+          className="mb-8 min-h-[150px]"
         >
           <h3 className="mb-1 text-xl font-semibold text-white">{step.title}</h3>
           <p className="mb-6 text-sm text-gray-400">{step.description}</p>
 
-          {/* KYC level indicator */}
-          {kycLevel !== undefined && (
-            <div className="mb-4 rounded-lg bg-gray-800 p-4">
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-gray-400">Current KYC Level:</span>
-                <span className="font-medium text-white">Level {kycLevel}</span>
-              </div>
-              
-              {/* KYC Level bar */}
-              <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-gray-700">
-                <div 
-                  className="h-full bg-gradient-to-r from-blue-500 to-purple-600 transition-all duration-300 ease-out"
-                  style={{ width: `${(kycLevel / 3) * 100}%` }}
-                />
-              </div>
-              <div className="mt-1 flex justify-between text-xs text-gray-500">
-                <span>Level 0</span>
-                <span>Level 1</span>
-                <span>Level 2</span>
-                <span>Level 3</span>
-              </div>
-            </div>
-          )}
-
-          {/* Steps content */}
           {currentStep === 0 && (
-            <div className="rounded-lg bg-gray-800 p-4 text-center">
-              <div className="mb-4 text-gray-300">
-                {!address ? (
-                  <>
-                    <p>Please connect your wallet to continue with KYC verification.</p>
-                    <p className="mt-2 text-sm text-gray-500">This will verify your blockchain identity.</p>
-                  </>
-                ) : (
-                  <>
-                    <p>Wallet connected!</p>
-                    <p className="mt-2 text-sm break-all">{address}</p>
-                  </>
-                )}
-              </div>
+            <div className="flex flex-col items-center justify-center">
+              <CustomConnectButton />
+              <p className="mt-4 text-xs text-gray-500">Your wallet connection status will be updated here.</p>
             </div>
           )}
 
           {currentStep === 1 && (
             <div className="rounded-lg bg-gray-800 p-4 text-center">
-              <div className="mb-4 text-gray-300">
-                <p>By proceeding, you will submit your wallet address for KYC verification.</p>
-                <p className="mt-2 text-sm text-gray-500">Once verified, your trust score will be updated.</p>
-              </div>
-              
-              <div className="mt-4 flex items-center justify-center">
-                <svg className="mr-2 h-5 w-5 text-yellow-500" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
-                  <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                </svg>
-                <span className="text-sm text-yellow-500">This transaction requires blockchain confirmation.</span>
-              </div>
+              {isLoading && <p className="text-gray-300">Checking activation status...</p>}
+              {!isLoading && initialActivationFee !== undefined && initialActivationFee !== null && (
+                <p className="text-gray-300 mb-2">
+                  Activation Fee: {formatEther(initialActivationFee as bigint)} ETH
+                </p>
+              )}
+              {!isLoading && (initialActivationFee === undefined || initialActivationFee === null) && (
+                 <p className="text-gray-300 mb-2">Loading activation fee...</p>
+              )}
+              <Button 
+                onClick={handleActivate} 
+                disabled={isProcessing || isLoading || hasPaidFee === true || initialActivationFee === undefined || initialActivationFee === null}
+                className="w-full"
+              >
+                {isProcessing ? "Processing..." : "Activate Account"}
+              </Button>
             </div>
           )}
 
           {currentStep === 2 && (
-            // Final confirmation step
+             <div className="rounded-lg bg-gray-800 p-4 text-center">
+              {isLoading && <p className="text-gray-300">Checking KYC status...</p>}
+              {!isLoading && kycLevel !== undefined && kycLevel !== null && (
+                <p className="text-gray-300 mb-2">
+                  Current KYC Level: {Number(kycLevel)}
+                </p>
+              )}
+               <Button 
+                onClick={handleRequestKyc} 
+                disabled={isProcessing || isLoading || (kycLevel !== undefined && kycLevel !== null && kycLevel >= BigInt(1))}
+                className="w-full"
+              >
+                {isProcessing ? "Processing..." : "Request KYC Level 1"}
+              </Button>
+             </div>
+          )}
+
+          {currentStep === 3 && (
             <div className="flex flex-col items-center justify-center py-8 text-center">
-              <div className="mb-4 rounded-full bg-blue-500/20 p-4">
+               <div className="mb-4 rounded-full bg-blue-500/20 p-4">
                 <svg width="40" height="40" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="text-blue-400">
                   <path d="M9 16.2L4.8 12L3.4 13.4L9 19L21 7L19.6 5.6L9 16.2Z" fill="currentColor" />
                 </svg>
               </div>
-              <h4 className="mb-2 text-xl font-semibold text-white">
-                Verification Request Submitted
-              </h4>
+              <h4 className="mb-2 text-xl font-semibold text-white">Request Submitted</h4>
               <p className="text-gray-400 mb-4">
-                Your KYC verification request has been submitted to the network.
+                Your KYC verification request has been successfully submitted to the network.
+                 Your Trust Score will be updated once the verification is processed.
               </p>
-              <div className="rounded-lg bg-gray-800 p-4 w-full">
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-sm text-gray-400">Current Trust Score:</span>
-                  <span className="font-medium text-white">{trustScore}</span>
-                </div>
-                <div className="h-2 w-full overflow-hidden rounded-full bg-gray-700">
-                  <div 
-                    className="h-full bg-gradient-to-r from-blue-500 to-indigo-600 transition-all duration-300 ease-out"
-                    style={{ width: `${(trustScore / 1000) * 100}%` }}
-                  />
-                </div>
-              </div>
             </div>
           )}
         </motion.div>
 
-        {/* Navigation buttons */}
-        <div className="flex justify-between">
-          <button
-            onClick={handlePrevStep}
-            className={cn(
-              "rounded-lg border border-gray-700 px-4 py-2 text-sm font-medium text-white transition-colors",
-              isFirstStep ? "invisible" : "hover:bg-gray-800"
-            )}
-            disabled={isFirstStep || isPending || isSubmitting}
-          >
-            Back
-          </button>
-          
-          <button
-            onClick={handleNextStep}
-            disabled={isPending || isSubmitting || (currentStep === 0 && !address)}
-            className={cn(
-              "rounded-lg bg-gradient-to-r px-4 py-2 text-sm font-medium text-white transition-all",
-              isPending || isSubmitting || (currentStep === 0 && !address)
-                ? "from-gray-600 to-gray-700 opacity-70" 
-                : "from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
-            )}
-          >
-            {isPending || isSubmitting ? (
-              <div className="flex items-center gap-2">
-                <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24">
-                  <circle
-                    className="opacity-25"
-                    cx="12"
-                    cy="12"
-                    r="10"
-                    stroke="currentColor"
-                    strokeWidth="4"
-                  ></circle>
-                  <path
-                    className="opacity-75"
-                    fill="currentColor"
-                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                  ></path>
-                </svg>
-                <span>Processing...</span>
-              </div>
-            ) : currentStep === 0 ? (
-              !address ? "Connect Wallet" : "Continue"
-            ) : isLastStep ? (
-              "Complete Verification"
-            ) : currentStep === 1 ? (
-              "Submit Verification"
-            ) : (
-              "Continue"
-            )}
-          </button>
+        <div className="flex justify-end">
+          {isLastStep ? (
+            <Button 
+              onClick={handleCompleteFlow} 
+              disabled={isProcessing}
+              className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
+            >
+              {isProcessing ? "Processing..." : "Finish"}
+            </Button>
+          ) : (
+            <Button 
+              onClick={proceedToNextStep} 
+              disabled={isProcessing || isLoading || 
+                         (currentStep === 0 && !isConnected) || 
+                         (currentStep === 1 && (hasPaidFee === false || initialActivationFee === undefined || initialActivationFee === null)) ||
+                         (currentStep === 2 && (kycLevel === undefined || kycLevel === null || kycLevel < BigInt(1)))
+                       }
+              className={cn(
+                "rounded-lg bg-gradient-to-r px-4 py-2 text-sm font-medium text-white transition-all",
+                (isProcessing || isLoading || 
+                  (currentStep === 0 && !isConnected) || 
+                  (currentStep === 1 && (hasPaidFee === false || initialActivationFee === undefined || initialActivationFee === null)) ||
+                  (currentStep === 2 && (kycLevel === undefined || kycLevel === null || kycLevel < BigInt(1)))
+                ) 
+                  ? "from-gray-600 to-gray-700 opacity-70" 
+                  : "from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700",
+                (currentStep > 0 && currentStep < kycSteps.length -1) && "invisible" 
+              )}
+            >
+              {isProcessing ? "Processing..." : "Next"}
+            </Button>
+          )}
         </div>
       </div>
     </div>
