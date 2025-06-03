@@ -1,29 +1,34 @@
 "use client";
 
-import { motion } from "motion/react";
+import { motion } from "framer-motion";
 import { Particles } from "../magicui/particles";
 import { SparklesText } from "../magicui/sparkles-text";
 import { CustomConnectButton } from "../web3/connect-wallet-button";
 import { AnimatedBackgroundBeam } from "./animated-background-beam";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { TrustBadgeCard } from "../web3/trust-badge";
 import { KycVerificationModal } from "../web3/kyc-verification-modal";
+import { useKYC } from "@/lib/hooks/useKYC";
+import { useAccount } from "wagmi";
+import { Button } from "@/components/ui/button";
 
 export function HeroSection() {
   const [isKycModalOpen, setIsKycModalOpen] = useState(false);
-  const [trustScore, setTrustScore] = useState(0);
-  const [isKycVerified, setIsKycVerified] = useState(false);
-  const [userAddress, setUserAddress] = useState("");
-  
+  const { 
+    reputationScore,
+    isKycVerified,
+    isReputationLoading,
+    address: kycHookAddress,
+    kycLevel 
+  } = useKYC();
+  const { address: connectedAddress, isConnected } = useAccount();
+
+  const displayAddress = connectedAddress || kycHookAddress || "";
+  const actualTrustScore = reputationScore ?? 0;
+  const actualIsKycVerified = isKycVerified ?? (kycLevel != null && kycLevel > BigInt(0));
+
   const handleStartKyc = () => {
     setIsKycModalOpen(true);
-  };
-  
-  const handleKycCompleted = (score: number) => {
-    setTrustScore(score);
-    setIsKycVerified(true);
-    // In a real implementation, we would get the user's address from their wallet
-    setUserAddress("0x71C7656EC7ab88b098defB751B7401B5f6d8976F");
   };
 
   return (
@@ -84,12 +89,33 @@ export function HeroSection() {
             transition={{ delay: 0.6, duration: 0.8 }}
           >
             <CustomConnectButton className="px-8 py-3 text-lg" />
-            <button 
-              onClick={handleStartKyc}
-              className="rounded-full bg-gradient-to-r from-blue-600 to-indigo-600 px-8 py-3 font-semibold text-white transition-transform hover:scale-105"
-            >
-              Complete KYC
-            </button>
+            {isConnected && (
+              <motion.div
+                animate={!actualIsKycVerified ? { 
+                  scale: [1, 1.05, 1, 1.05, 1],
+                  boxShadow: ["0 0 0px #6366f1", "0 0 20px #6366f1", "0 0 0px #6366f1", "0 0 20px #6366f1", "0 0 0px #6366f1"],
+                } : {}}
+                transition={!actualIsKycVerified ? {
+                  duration: 1.5,
+                  repeat: Infinity,
+                  repeatType: "loop",
+                  ease: "easeInOut"
+                } : {}}
+                className="rounded-full"
+              >
+                <Button 
+                  onClick={handleStartKyc}
+                  className="rounded-full bg-gradient-to-r from-blue-600 to-indigo-600 px-8 py-3 font-semibold text-white transition-transform hover:scale-105"
+                  disabled={isReputationLoading}
+                >
+                  {isReputationLoading
+                    ? "Loading Status..."
+                    : actualIsKycVerified
+                    ? "KYC Verified!"
+                    : "Complete KYC"}
+                </Button>
+              </motion.div>
+            )}
           </motion.div>
         </motion.div>
 
@@ -101,20 +127,22 @@ export function HeroSection() {
           transition={{ duration: 1 }}
         >
           <TrustBadgeCard
-            trustScore={trustScore}
-            kycVerified={isKycVerified}
-            address={userAddress}
+            trustScore={actualTrustScore}
+            kycVerified={actualIsKycVerified}
+            address={displayAddress}
+            isLoading={isReputationLoading}
             className="w-[350px]"
           />
         </motion.div>
       </div>
 
       {/* KYC verification modal */}
-      <KycVerificationModal 
-        isOpen={isKycModalOpen}
-        onClose={() => setIsKycModalOpen(false)}
-        onVerificationComplete={handleKycCompleted}
-      />
+      {isConnected && (
+        <KycVerificationModal 
+          isOpen={isKycModalOpen}
+          onClose={() => setIsKycModalOpen(false)}
+        />
+      )}
     </section>
   );
 } 

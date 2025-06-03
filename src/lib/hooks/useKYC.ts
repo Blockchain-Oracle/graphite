@@ -42,6 +42,11 @@ export function useKYC() {
     abi: ABIS.kyc,
   };
 
+  const reputationContractConfig = {
+    address: CONTRACT_ADDRESSES.reputation as `0x${string}`, // Assuming this is defined
+    abi: ABIS.reputation, // Corrected: Use the native IGraphiteReputation ABI
+  };
+
   // Query for paid fee status (formerly activation status)
   const paidFeeStatusQuery = useQuery({
     queryKey: ['paid-fee-status', address, chain?.id],
@@ -104,6 +109,25 @@ export function useKYC() {
     enabled: !!address && !!publicClient,
   });
 
+  const reputationQuery = useQuery({
+    queryKey: ['reputation-score', address, chain?.id],
+    queryFn: async () => {
+      if (!address || !publicClient || !reputationContractConfig.address) return null;
+      try {
+        const rawScore = await publicClient.readContract({
+          ...reputationContractConfig,
+          functionName: 'getReputation',
+          args: [address],
+        }) as bigint;
+        return Number(rawScore);
+      } catch (error) {
+        console.error('Error fetching reputation score:', error);
+        return 0; // Default to 0 on error
+      }
+    },
+    enabled: !!address && !!publicClient && !!reputationContractConfig.address,
+  });
+
   // Activate Account (Pay Fee)
   const { writeContractAsync: activateAccountWrite, data: activateHash, isPending: isActivating } = useWriteContract();
   const { isLoading: isConfirmingActivation, isSuccess: isActivationSuccess } = useWaitForTransactionReceipt({
@@ -140,6 +164,7 @@ export function useKYC() {
         functionName: 'createKYCRequest',
         args: [BigInt(level), kycDataHash], 
         value: parseEther('0.1'), 
+        type: 'legacy',
         gasPrice: BigInt(300000000000), // 300 Gwei, from Hardhat config
         gas: BigInt(3000000) 
       });
@@ -173,8 +198,9 @@ export function useKYC() {
           console.error(errorMsg);
           setKycApiError(errorMsg);
         } else {
-          console.log('KYC API call successful. Waiting for on-chain update via KYC level refetch.');
-          kycLevelQuery.refetch(); // Refetch KYC level after API call
+          console.log('KYC API call successful. Triggering refetch for KYC level and reputation.');
+          kycLevelQuery.refetch();
+          reputationQuery.refetch(); // Refetch reputation after KYC process
         }
       } catch (error: any) {
         const errorMsg = `Error calling KYC API: ${error.message || error}`;
@@ -192,16 +218,18 @@ export function useKYC() {
       // (Implicitly handled by kycRequestHash being a dependency of useWaitForTransactionReceipt)
       processKycRequestApi(processingUuid);
     }
-  }, [isKycRequestSuccess, processingUuid, kycRequestHash, kycLevelQuery]); // Added kycLevelQuery to dep array
+  }, [isKycRequestSuccess, processingUuid, kycRequestHash, kycLevelQuery, reputationQuery]); // Added reputationQuery
 
   // Invalidate queries when transactions succeed
   if (isActivationSuccess) {
     paidFeeStatusQuery.refetch(); // Refetch paid status after successful payment
+    reputationQuery.refetch(); // Also refetch reputation after account activation
   }
   
   // Consolidate loading states
   const isProcessing = isActivating || isConfirmingActivation || isRequestingKyc || isConfirmingKycRequest;
-  const isReading = paidFeeStatusQuery.isLoading || initialFeeQuery.isLoading || kycLevelQuery.isLoading;
+  const isReading = paidFeeStatusQuery.isLoading || initialFeeQuery.isLoading || kycLevelQuery.isLoading || reputationQuery.isLoading;
+  const isKycVerified = kycLevelQuery.data != null && kycLevelQuery.data > BigInt(0);
 
   return {
     address,
@@ -220,6 +248,10 @@ export function useKYC() {
     kycLevel: kycLevelQuery.data,
     isKycLevelLoading: kycLevelQuery.isLoading,
     refetchKycLevel: kycLevelQuery.refetch,
+    isKycVerified,
+    reputationScore: reputationQuery.data, // This is the scaled score (0-1000)
+    isReputationLoading: reputationQuery.isLoading,
+    refetchReputationScore: reputationQuery.refetch,
     requestKycVerification,
     isRequestingKyc: isRequestingKyc || isConfirmingKycRequest,
     isKycRequestSuccess,
@@ -233,5 +265,6 @@ export function useKYC() {
     paidFeeStatusError: paidFeeStatusQuery.error,
     initialFeeError: initialFeeQuery.error,
     kycLevelError: kycLevelQuery.error,
+    reputationError: reputationQuery.error,
   };
 }

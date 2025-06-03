@@ -13,7 +13,7 @@ import { formatEther } from "viem";
 interface KycVerificationModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onVerificationComplete: (trustScore: number) => void;
+  onVerificationComplete?: (score: number) => void;
 }
 
 const kycSteps = [
@@ -165,7 +165,7 @@ export function KycVerificationModal({
   };
 
   const handleCompleteFlow = () => {
-    onVerificationComplete(trustScore || 0);
+    onVerificationComplete?.(trustScore || 0);
     onClose();
   };
 

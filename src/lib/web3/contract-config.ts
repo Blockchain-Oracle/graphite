@@ -5,6 +5,7 @@ import GraphiteAirdropFactoryABI from './abis/GraphiteAirdropFactory.json';
 import SybilResistantAirdropABI from './abis/SybilResistantAirdrop.json';
 import IGraphiteFeeABI from './abis/IGraphiteFee.json';
 import IGraphiteKYCABI from './abis/IGraphiteKYC.json';
+import IGraphiteReputationABI from './abis/IGraphiteReputation.json';
 
 // Contract addresses - These should come from environment variables in production
 export const CONTRACT_ADDRESSES = {
@@ -36,6 +37,7 @@ export const ABIS = {
   sybilResistantAirdrop: SybilResistantAirdropABI.abi,
   fee: IGraphiteFeeABI.abi,
   kyc: IGraphiteKYCABI.abi,
+  reputation: IGraphiteReputationABI.abi,
 };
 
 // Contract type definitions for better TypeScript integration

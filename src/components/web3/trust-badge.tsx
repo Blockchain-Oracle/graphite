@@ -1,19 +1,21 @@
 "use client";
 
 import { useState } from "react";
-import { motion } from "motion/react";
+import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 import Image from "next/image";
 
 // Import MagicUI components
 import { ShineBorderCard } from "@/components/magicui/shine-border";
 import { Meteors } from "@/components/magicui/meteors";
+import { Skeleton } from "@/components/ui/skeleton";
 
 interface TrustBadgeProps {
   trustScore: number;
   className?: string;
   address?: string;
   kycVerified?: boolean;
+  isLoading?: boolean;
 }
 
 const trustTiers = [
@@ -87,9 +89,17 @@ function getTrustTier(score: number) {
   );
 }
 
-export function TrustBadge({ trustScore, className }: TrustBadgeProps) {
+export function TrustBadge({ trustScore, className, isLoading }: TrustBadgeProps) {
   const [isHovering, setIsHovering] = useState(false);
   const tier = getTrustTier(trustScore);
+
+  if (isLoading) {
+    return (
+      <div className={cn("relative z-10 h-60 w-60", className)}>
+        <Skeleton className="h-full w-full rounded-full bg-gray-700/50" />
+      </div>
+    );
+  }
 
   return (
     <motion.div
@@ -201,15 +211,27 @@ export function TrustBadgeCard({
   address,
   kycVerified,
   className,
+  isLoading,
 }: TrustBadgeProps) {
+  console.log('[TrustBadgeCard] Props Received:', { trustScore, address, kycVerified, isLoading });
+
   const tier = getTrustTier(trustScore);
   const [isHovering, setIsHovering] = useState(false);
 
-  const formatAddress = (addr: string) => {
+  const formatAddress = (addr: string | undefined) => {
     if (!addr) return "";
     if (addr.length <= 10) return addr;
     return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
   };
+
+  if (isLoading) {
+    console.log('[TrustBadgeCard] Rendering Skeleton because isLoading is true.');
+    return (
+      <div className={cn("group relative overflow-hidden rounded-xl bg-black/30 p-6 backdrop-blur-lg", className)}>
+        <Skeleton className="h-[350px] w-full rounded-lg bg-gray-700/50" />
+      </div>
+    );
+  }
 
   return (
     <motion.div
@@ -236,7 +258,7 @@ export function TrustBadgeCard({
 
       {/* Inner content with subtle gradient background */}
       <div className="relative z-10 flex flex-col items-center space-y-6 rounded-lg p-4">
-        <TrustBadge trustScore={trustScore} />
+        <TrustBadge trustScore={trustScore} isLoading={isLoading} />
 
         <div className="text-center">
           {address && (
@@ -244,7 +266,7 @@ export function TrustBadgeCard({
               {formatAddress(address)}
             </div>
           )}
-
+          {(kycVerified && console.log('[TrustBadgeCard] kycVerified is true, attempting to render KYC status.'), null)}
           {kycVerified && (
             <div className="flex items-center justify-center space-x-1 text-green-400">
               <svg
