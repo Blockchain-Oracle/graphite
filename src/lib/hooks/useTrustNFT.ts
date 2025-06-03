@@ -1,12 +1,7 @@
 import { useState, useEffect } from 'react';
-import { useAccount, useConfig } from 'wagmi';
-import { 
-  useReadContract, 
-  useWriteContract, 
-  useWaitForTransactionReceipt
-} from 'wagmi';
+import { useAccount, useConfig, useReadContract, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { getPublicClient } from 'wagmi/actions';
-import { type PublicClient } from 'viem';
+import { PublicClient } from 'viem';
 import { getContractConfig } from '../web3/contract-config';
 import { NFT, NFTTier, NFTAttribute } from '../types';
 

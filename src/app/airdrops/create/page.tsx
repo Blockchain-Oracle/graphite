@@ -1,27 +1,59 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { motion } from "motion/react";
 import Image from "next/image";
-import { ArrowLeft, ArrowRight, CheckCircle, AlertCircle, Info, Upload, Clock, Calendar, FileText, Users, Settings, Eye, Gift } from "lucide-react";
+import { 
+  ArrowLeft, ArrowRight, CheckCircle, AlertCircle, Info, Upload, Clock, 
+  Calendar, FileText, Users, Settings, Eye, Gift, Loader2, FileUp 
+} from "lucide-react";
 import { GlassmorphismCard } from "@/components/ui/glassmorphism-card";
 import { AnimatedBeamsContainer } from "@/components/magicui/animated-beam";
 import { CoolMode } from "@/components/magicui/cool-mode";
 import { Particles } from "@/components/magicui/particles";
 import { Confetti } from "@/components/magicui/confetti";
 import { ShineBorderCard } from "@/components/magicui/shine-border";
+import { Button } from "@/components/ui/button";
+import dynamic from 'next/dynamic';
+import { 
+  useTokenMetadata, 
+  useTokenAllowance, 
+  useCreateAirdrop, 
+  useMerkleTree, 
+  type AirdropRecipient, 
+  type MerkleProofData 
+} from "@/lib/hooks/useAirdrops";
+import { getContractConfig } from "@/lib/web3/contract-config";
+import { useAccount } from "wagmi";
+import { isAddress } from "viem";
+
+// Define the shape for a column in the CSVImporter template
+interface CSVColumn {
+  name: string; // This is the display name for the column (header)
+  key: string;  // This is the key used in the resulting data objects
+  required?: boolean;
+  description?: string;
+  suggested_mappings?: string[];
+  data_type?: 'string' | 'number' | 'boolean'; // Based on typical CSV data
+}
+
+// Dynamically import CSVImporter to ensure it only runs on the client-side
+const CSVImporter = dynamic(() => 
+  import('csv-import-react').then(mod => mod.CSVImporter),
+  { ssr: false }
+);
 
 type AirdropFormData = {
   tokenDetails: {
-    tokenType: "ERC20" | "ERC721";
+    tokenType: "ERC20" | "ERC721"; // ERC721 might need different amount handling
     tokenAddress: string;
     tokenName: string;
     tokenSymbol: string;
-    tokenAmount: string;
+    // tokenAmount: string; // Amount per wallet - will be derived from CSV for Merkle, or set for non-Merkle
     logoUrl: string;
   };
   distribution: {
-    recipientAddresses: string[];
+    recipientAddresses: string[]; // Kept for non-merkle or as summary
     hasMerkleTree: boolean;
     merkleRoot?: string;
   };
@@ -44,7 +76,7 @@ const initialFormData: AirdropFormData = {
     tokenAddress: "",
     tokenName: "",
     tokenSymbol: "",
-    tokenAmount: "",
+    // tokenAmount: "", 
     logoUrl: "",
   },
   distribution: {
@@ -66,16 +98,109 @@ const steps = [
   { id: "distribution", title: "Distribution List", icon: Users },
   { id: "eligibility", title: "Eligibility", icon: Settings },
   { id: "timing", title: "Timing", icon: Calendar },
-  { id: "review", title: "Review", icon: Eye },
+  { id: "review", title: "Review & Approve", icon: Eye },
+];
+
+// Adapted for csv-import-react template structure
+const csvImportColumns: CSVColumn[] = [
+  { 
+    name: "Wallet Address", 
+    key: "address", 
+    required: true, 
+    description: "The recipient\'s wallet address (e.g., 0x...)",
+    suggested_mappings: ["wallet", "address", "recipient_address", "wallet address"]
+  },
+  { 
+    name: "Token Amount", 
+    key: "amount", 
+    required: true, 
+    description: "Amount in the smallest unit (e.g., wei)", 
+    data_type: "string", // Keep as string for BigInt conversion
+    suggested_mappings: ["amount", "token_amount", "value", "token amount"]
+  },
 ];
 
 export default function CreateAirdrop() {
   const [currentStep, setCurrentStep] = useState(0);
   const [formData, setFormData] = useState<AirdropFormData>(initialFormData);
-  const [isLoading, setIsLoading] = useState(false);
-  const [isSuccess, setIsSuccess] = useState(false);
   const [showConfetti, setShowConfetti] = useState(false);
+  const [isCsvImporterOpen, setIsCsvImporterOpen] = useState(false);
+  const [parsedRecipients, setParsedRecipients] = useState<AirdropRecipient[]>([]);
+  const [totalTokensToAirdrop, setTotalTokensToAirdrop] = useState<bigint>(BigInt(0));
+  const [merkleRootDisplay, setMerkleRootDisplay] = useState<string>("");
+
+  const { address: userWalletAddress } = useAccount();
+  const airdropFactoryAddress = getContractConfig('airdropFactory').address;
+
+  // Token Metadata Hook
+  const { 
+    tokenInfo: tokenMetadataInfo, 
+    isLoading: isTokenMetadataLoading, 
+    error: tokenMetadataError,
+    formatTokenAmount
+  } = useTokenMetadata(
+    formData.tokenDetails.tokenAddress as `0x\${string}` // Corrected type cast
+  );
+
+  // Token Allowance Hook
+  const { 
+    allowance, 
+    hasSufficientAllowance, 
+    isLoading: isAllowanceLoading, 
+    error: allowanceError, 
+    approveTokens,
+    isApprovePending,
+    isApproveConfirming,
+    isApproveSuccess,
+    approveHash
+  } = useTokenAllowance(
+    formData.tokenDetails.tokenAddress as `0x\${string}`, // Corrected type cast
+    totalTokensToAirdrop
+  );
+
+  // Create Airdrop Hook
+  const { 
+    createAirdrop, 
+    isPending: isCreatingAirdrop, 
+    isConfirming: isCreateAirdropConfirming, 
+    isSuccess: isCreateAirdropSuccess, 
+    hash: createAirdropHash,
+    error: createAirdropError 
+  } = useCreateAirdrop();
+
+  // Merkle Tree Hook
+  const { 
+    generateMerkleTree, 
+    isGenerating: isGeneratingMerkle, 
+    error: merkleGenerationError, 
+    merkleData: merkleTreeHookData 
+  } = useMerkleTree();
+
+  // Effect to update token name and symbol from metadata
+  useEffect(() => {
+    if (tokenMetadataInfo) {
+      handleChange("tokenDetails", "tokenName", tokenMetadataInfo.name);
+      handleChange("tokenDetails", "tokenSymbol", tokenMetadataInfo.symbol);
+      if(tokenMetadataInfo.logo) {
+         handleChange("tokenDetails", "logoUrl", tokenMetadataInfo.logo);
+      }
+    }
+  }, [tokenMetadataInfo]);
   
+  // Effect to calculate total tokens to airdrop from parsed recipients
+  useEffect(() => {
+    if (parsedRecipients.length > 0) {
+      const newTotal = parsedRecipients.reduce((sum, recipient) => sum + recipient.amount, BigInt(0));
+      setTotalTokensToAirdrop(newTotal);
+      // Update formData.distribution.recipientAddresses to store just the count for display
+      handleChange("distribution", "recipientAddresses", parsedRecipients.map(r => r.address));
+    } else {
+      setTotalTokensToAirdrop(BigInt(0));
+      handleChange("distribution", "recipientAddresses", []);
+    }
+  }, [parsedRecipients]);
+
+
   // Handle form input changes
   const handleChange = (
     section: keyof AirdropFormData,
@@ -98,57 +223,169 @@ export default function CreateAirdrop() {
       const reader = new FileReader();
       reader.onload = (event) => {
         if (event.target && event.target.result) {
-          handleChange("tokenDetails", "logoUrl", event.target.result);
+          handleChange("tokenDetails", "logoUrl", event.target.result as string);
         }
       };
       reader.readAsDataURL(file);
     }
   };
 
-  // Handle recipient addresses textarea input
-  const handleRecipientsInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const addresses = e.target.value.split("\n").filter(addr => addr.trim() !== "");
-    handleChange("distribution", "recipientAddresses", addresses);
+  // Handle CSV import completion
+  const handleCsvImportComplete = async (data: {rows: Array<Record<string, any>>}) => {
+    console.log("CSV Import Data Received:", JSON.stringify(data, null, 2));
+
+    const importedRows = data.rows || []; 
+    console.log("Imported Rows:", JSON.stringify(importedRows, null, 2));
+
+    const recipients: AirdropRecipient[] = importedRows
+      .filter(row => {
+        // Access data from row.values
+        const addressValue = row?.values?.address;
+        const amountValue = row?.values?.amount;
+        const isValid = row?.values && typeof addressValue === 'string' && addressValue.startsWith('0x') && amountValue && isAddress(addressValue);
+        
+        if (!isValid && row?.values) {
+          console.warn(`Invalid row skipped: Address: ${addressValue}, Amount: ${amountValue}, isAddress valid: ${isAddress(addressValue || '')}`);
+        }
+        return isValid;
+      })
+      .map(row => {
+        try {
+          // Access data from row.values
+          const recipientEntry = {
+            address: row.values.address as `0x${string}`,
+            amount: BigInt(String(row.values.amount)) // Ensure your CSV has full numbers, not scientific notation
+          };
+          return recipientEntry;
+        } catch (e) {
+          console.error(`Error converting row to AirdropRecipient: ${JSON.stringify(row.values)}, Error: ${e}`);
+          return null;
+        }
+      })
+      .filter(Boolean) as AirdropRecipient[]; // Filter out nulls from mapping errors
+
+    console.log("Parsed Recipients:", JSON.stringify(recipients, (k,v) => typeof v === 'bigint' ? v.toString() : v, 2));
+    console.log("Number of Parsed Recipients:", recipients.length);
+
+    setParsedRecipients(recipients);
+    setIsCsvImporterOpen(false);
+
+    console.log("Has Merkle Tree Checkbox: ", formData.distribution.hasMerkleTree);
+
+    if (formData.distribution.hasMerkleTree && recipients.length > 0) {
+      console.log("Attempting to generate Merkle tree...");
+      try {
+        const generatedMerkleData = await generateMerkleTree(recipients);
+        if (generatedMerkleData) {
+          console.log("Merkle Data Generated:", JSON.stringify(generatedMerkleData, (k,v) => typeof v === 'bigint' ? v.toString() : v, 2));
+          setMerkleRootDisplay(generatedMerkleData.root);
+          handleChange("distribution", "merkleRoot", generatedMerkleData.root);
+        } else {
+          console.warn("Merkle tree generation returned null or undefined.");
+        }
+      } catch (err) {
+        console.error("Merkle tree generation error:", err);
+        // Display error to user
+      }
+    } else {
+      if (!formData.distribution.hasMerkleTree) {
+        console.log("Merkle tree not enabled.");
+      }
+      if (recipients.length === 0) {
+        console.log("No valid recipients to generate Merkle tree for.");
+      }
+    }
+  };
+  
+  const handleApprove = async () => {
+    if (!formData.tokenDetails.tokenAddress || totalTokensToAirdrop === BigInt(0)) return;
+    try {
+      await approveTokens(totalTokensToAirdrop);
+    } catch (err) {
+      console.error("Error approving tokens:", err);
+    }
   };
 
-  // Move to next step
   const nextStep = () => {
     if (currentStep < steps.length - 1) {
       setCurrentStep(currentStep + 1);
     }
   };
 
-  // Move to previous step
   const prevStep = () => {
     if (currentStep > 0) {
       setCurrentStep(currentStep - 1);
     }
   };
 
-  // Submit the form
   const handleSubmit = async () => {
-    setIsLoading(true);
+    if (!userWalletAddress || !formData.tokenDetails.tokenAddress || !tokenMetadataInfo) {
+      alert("Please connect your wallet and fill in all required token details.");
+      return;
+    }
+
+    if (formData.distribution.hasMerkleTree && (!merkleRootDisplay || parsedRecipients.length === 0)) {
+        alert("Merkle tree is enabled, but no recipients loaded or Merkle root not generated. Please upload a recipient list.");
+        return;
+    }
     
+    if (!formData.distribution.hasMerkleTree && parsedRecipients.length === 0) {
+        alert("Please provide a list of recipient addresses and amounts (e.g., via CSV upload).");
+        return;
+    }
+
+    const finalMerkleRoot = formData.distribution.hasMerkleTree && merkleRootDisplay
+        ? (merkleRootDisplay as `0x${string}`)
+        : '0x0000000000000000000000000000000000000000000000000000000000000000';
+
+    const requiredTrustScore = formData.eligibility.requireTrustScore && formData.eligibility.minimumTrustScore
+        ? BigInt(formData.eligibility.minimumTrustScore)
+        : BigInt(0);
+
+    const requiredKYCLevel = formData.eligibility.requireKYC
+        ? BigInt(1) // Default to KYC Level 1 if required
+        : BigInt(0);
+
     try {
-      // In a real implementation, this would be a blockchain call
-      // const provider = new ethers.providers.Web3Provider(window.ethereum);
-      // const signer = provider.getSigner();
-      // const contract = new ethers.Contract(airdropFactoryAddress, airdropFactoryABI, signer);
-      // const tx = await contract.createAirdrop(formDataParams);
-      // await tx.wait();
-      
-      // For now, simulate success after a delay
-      setTimeout(() => {
-        setIsLoading(false);
-        setIsSuccess(true);
-        setShowConfetti(true);
-        setTimeout(() => setShowConfetti(false), 5000);
-      }, 2000);
+      await createAirdrop(
+        formData.tokenDetails.tokenAddress as `0x${string}`,
+        finalMerkleRoot,
+        requiredTrustScore,
+        requiredKYCLevel,
+        BigInt(Math.floor(new Date(formData.timing.startDate).getTime() / 1000)),
+        BigInt(Math.floor(new Date(formData.timing.endDate).getTime() / 1000))
+      );
+      // Success is handled by useEffect watching isCreateAirdropSuccess
     } catch (error) {
       console.error("Error creating airdrop:", error);
-      setIsLoading(false);
+      // Error state is already handled by useCreateAirdrop hook
     }
   };
+  
+  // Handle success state for airdrop creation
+  useEffect(() => {
+    if (isCreateAirdropSuccess) {
+      setShowConfetti(true);
+      setTimeout(() => setShowConfetti(false), 5000);
+    }
+  }, [isCreateAirdropSuccess]);
+
+  const isNextDisabled = useMemo(() => {
+    if (currentStep === 0) { // Token Selection
+      return !formData.tokenDetails.tokenAddress || !tokenMetadataInfo || isTokenMetadataLoading;
+    }
+    if (currentStep === 1) { // Distribution
+       if (formData.distribution.hasMerkleTree) {
+         return parsedRecipients.length === 0 || !merkleRootDisplay || isGeneratingMerkle;
+       }
+       // For non-merkle, a simple check if addresses are added and amount per wallet is set
+       // This part needs adjustment if we allow direct input for non-merkle airdrops
+       return parsedRecipients.length === 0;
+    }
+    // Add more specific validations for other steps if needed
+    return false;
+  }, [currentStep, formData, tokenMetadataInfo, isTokenMetadataLoading, parsedRecipients, merkleRootDisplay, isGeneratingMerkle]);
+
 
   const renderStepContent = () => {
     switch (currentStep) {
@@ -164,7 +401,7 @@ export default function CreateAirdrop() {
                   onChange={(e) => handleChange("tokenDetails", "tokenType", e.target.value)}
                 >
                   <option value="ERC20">ERC20 Token</option>
-                  <option value="ERC721">ERC721 NFT</option>
+                  {/* <option value="ERC721">ERC721 NFT</option> */}
                 </select>
               </div>
               
@@ -177,6 +414,8 @@ export default function CreateAirdrop() {
                   value={formData.tokenDetails.tokenAddress}
                   onChange={(e) => handleChange("tokenDetails", "tokenAddress", e.target.value)}
                 />
+                 {isTokenMetadataLoading && <p className="mt-1 text-sm text-blue-400">Fetching token info...</p>}
+                 {tokenMetadataError && <p className="mt-1 text-sm text-red-400">Error: {tokenMetadataError.message}</p>}
               </div>
             </div>
 
@@ -185,10 +424,11 @@ export default function CreateAirdrop() {
                 <label className="mb-2 block text-sm text-gray-300">Token Name</label>
                 <input
                   type="text"
-                  placeholder="Graphite Token"
+                  placeholder={tokenMetadataInfo ? tokenMetadataInfo.name : "Token Name"}
                   className="w-full rounded-lg border border-gray-700 bg-gray-900/50 px-3 py-2 text-white"
                   value={formData.tokenDetails.tokenName}
                   onChange={(e) => handleChange("tokenDetails", "tokenName", e.target.value)}
+                  readOnly={!!tokenMetadataInfo?.name}
                 />
               </div>
               
@@ -196,26 +436,22 @@ export default function CreateAirdrop() {
                 <label className="mb-2 block text-sm text-gray-300">Token Symbol</label>
                 <input
                   type="text"
-                  placeholder="GRT"
+                  placeholder={tokenMetadataInfo ? tokenMetadataInfo.symbol : "SYMBOL"}
                   className="w-full rounded-lg border border-gray-700 bg-gray-900/50 px-3 py-2 text-white"
                   value={formData.tokenDetails.tokenSymbol}
                   onChange={(e) => handleChange("tokenDetails", "tokenSymbol", e.target.value)}
+                  readOnly={!!tokenMetadataInfo?.symbol}
                 />
               </div>
             </div>
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                {/* Removed Amount Per Wallet input as it's derived from CSV or handled differently for non-merkle */}
               <div>
-                <label className="mb-2 block text-sm text-gray-300">Amount Per Wallet</label>
-                <input
-                  type="text"
-                  placeholder="100"
-                  className="w-full rounded-lg border border-gray-700 bg-gray-900/50 px-3 py-2 text-white"
-                  value={formData.tokenDetails.tokenAmount}
-                  onChange={(e) => handleChange("tokenDetails", "tokenAmount", e.target.value)}
-                />
+                 {tokenMetadataInfo && (
+                    <p className="text-sm text-gray-400">Decimals: {tokenMetadataInfo.decimals}</p>
+                 )}
               </div>
-              
               <div>
                 <label className="mb-2 block text-sm text-gray-300">Token Logo</label>
                 <div className="flex items-center">
@@ -241,50 +477,75 @@ export default function CreateAirdrop() {
         return (
           <div className="space-y-6">
             <div>
-              <label className="mb-2 block text-sm text-gray-300">Recipient Addresses</label>
-              <textarea
-                placeholder="Enter wallet addresses, one per line"
-                className="h-40 w-full rounded-lg border border-gray-700 bg-gray-900/50 px-3 py-2 text-white"
-                value={formData.distribution.recipientAddresses.join("\n")}
-                onChange={handleRecipientsInput}
-              />
-              <p className="mt-1 text-sm text-gray-400">
-                {formData.distribution.recipientAddresses.length} addresses added
-              </p>
-            </div>
-
-            <div>
-              <div className="flex items-center">
+              <div className="flex items-center mb-4">
                 <input
                   type="checkbox"
                   id="merkle-tree"
                   className="mr-2 h-4 w-4"
                   checked={formData.distribution.hasMerkleTree}
-                  onChange={(e) => handleChange("distribution", "hasMerkleTree", e.target.checked)}
+                  onChange={(e) => {
+                      handleChange("distribution", "hasMerkleTree", e.target.checked);
+                      if (!e.target.checked) { // If unchecking, clear Merkle related data
+                          setParsedRecipients([]);
+                          setMerkleRootDisplay("");
+                          handleChange("distribution", "merkleRoot", undefined);
+                      }
+                  }}
                 />
                 <label htmlFor="merkle-tree" className="text-sm text-gray-300">
-                  Use Merkle Tree for gas-efficient claims
+                  Use Merkle Tree for gas-efficient claims (Recommended for many recipients)
                 </label>
               </div>
-              <p className="mt-1 text-xs text-gray-400">
-                Recommended for airdrops with many recipients to save gas costs.
-              </p>
-            </div>
 
-            {formData.distribution.hasMerkleTree && (
-              <div>
-                <label className="mb-2 block text-sm text-gray-300">
-                  Merkle Root (Optional - will be generated for you)
-                </label>
-                <input
-                  type="text"
-                  placeholder="0x..."
-                  className="w-full rounded-lg border border-gray-700 bg-gray-900/50 px-3 py-2 text-white"
-                  value={formData.distribution.merkleRoot || ""}
-                  onChange={(e) => handleChange("distribution", "merkleRoot", e.target.value)}
-                />
-              </div>
-            )}
+              {formData.distribution.hasMerkleTree ? (
+                <>
+                  <Button onClick={() => setIsCsvImporterOpen(true)} className="mb-4 w-full">
+                    <FileUp className="mr-2 h-4 w-4" /> Upload Recipients CSV (address, amount)
+                  </Button>
+                  {parsedRecipients.length > 0 && (
+                    <p className="mt-1 text-sm text-gray-400">
+                      {parsedRecipients.length} recipients loaded. Total: {tokenMetadataInfo ? formatTokenAmount(totalTokensToAirdrop) : totalTokensToAirdrop.toString()} {formData.tokenDetails.tokenSymbol || 'Tokens'}
+                    </p>
+                  )}
+                  {isGeneratingMerkle && <p className="mt-1 text-sm text-blue-400">Generating Merkle root...</p>}
+                  {merkleGenerationError && <p className="mt-1 text-sm text-red-400">Error: {merkleGenerationError.message}</p>}
+                  {merkleRootDisplay && (
+                    <div>
+                      <label className="mb-2 block text-sm text-gray-300">Generated Merkle Root</label>
+                      <input
+                        type="text"
+                        className="w-full rounded-lg border border-gray-700 bg-gray-900/50 px-3 py-2 text-white"
+                        value={merkleRootDisplay}
+                        readOnly
+                      />
+                    </div>
+                  )}
+                </>
+              ) : (
+                // Fallback for non-Merkle tree (e.g., direct address input or smaller scale)
+                // This section needs to be designed based on how non-Merkle airdrops are handled.
+                // For now, also using CSV upload, but without Merkle tree generation.
+                // Or a simple textarea for addresses, and a single amount per wallet field (re-add from initial).
+                <>
+                 <Button onClick={() => setIsCsvImporterOpen(true)} className="mb-4 w-full">
+                    <FileUp className="mr-2 h-4 w-4" /> Upload Recipients CSV (address, amount)
+                  </Button>
+                  {parsedRecipients.length > 0 && (
+                    <p className="mt-1 text-sm text-gray-400">
+                      {parsedRecipients.length} recipients loaded. Total: {tokenMetadataInfo ? formatTokenAmount(totalTokensToAirdrop) : totalTokensToAirdrop.toString()} {formData.tokenDetails.tokenSymbol || 'Tokens'}
+                    </p>
+                  )}
+                  <p className="text-xs text-gray-500 mt-2">If not using a Merkle tree, ensure the contract can handle direct distributions or a pull-based system for this number of recipients.</p>
+                </>
+              )}
+            </div>
+            <CSVImporter
+              modalIsOpen={isCsvImporterOpen}
+              modalOnCloseTriggered={() => setIsCsvImporterOpen(false)}
+              template={{ columns: csvImportColumns } as any} // Added 'as any' to bypass potential strict type mismatches with dynamic import
+              onComplete={handleCsvImportComplete}
+              darkMode={true}
+            />
           </div>
         );
 
@@ -365,6 +626,7 @@ export default function CreateAirdrop() {
                   type="date"
                   className="w-full rounded-lg border border-gray-700 bg-gray-900/50 px-3 py-2 text-white"
                   value={formData.timing.startDate}
+                  min={new Date().toISOString().split("T")[0]} // Prevent past start dates
                   onChange={(e) => handleChange("timing", "startDate", e.target.value)}
                 />
               </div>
@@ -375,6 +637,7 @@ export default function CreateAirdrop() {
                   type="date"
                   className="w-full rounded-lg border border-gray-700 bg-gray-900/50 px-3 py-2 text-white"
                   value={formData.timing.endDate}
+                  min={formData.timing.startDate || new Date().toISOString().split("T")[0]} // End date must be after start date
                   onChange={(e) => handleChange("timing", "endDate", e.target.value)}
                 />
               </div>
@@ -389,7 +652,6 @@ export default function CreateAirdrop() {
                   checked={!!formData.timing.claimDeadline}
                   onChange={(e) => {
                     if (e.target.checked) {
-                      // Set default claim deadline to 30 days after end date
                       const endDate = new Date(formData.timing.endDate);
                       endDate.setDate(endDate.getDate() + 30);
                       handleChange("timing", "claimDeadline", endDate.toISOString().split("T")[0]);
@@ -399,7 +661,7 @@ export default function CreateAirdrop() {
                   }}
                 />
                 <label htmlFor="claim-deadline" className="text-sm text-gray-300">
-                  Set Claim Deadline
+                  Set Claim Deadline (Optional)
                 </label>
               </div>
               <p className="mt-1 text-xs text-gray-400">
@@ -414,6 +676,7 @@ export default function CreateAirdrop() {
                   type="date"
                   className="w-full rounded-lg border border-gray-700 bg-gray-900/50 px-3 py-2 text-white"
                   value={formData.timing.claimDeadline}
+                   min={formData.timing.endDate || new Date().toISOString().split("T")[0]} // Claim deadline must be after end date
                   onChange={(e) => handleChange("timing", "claimDeadline", e.target.value)}
                 />
               </div>
@@ -421,7 +684,7 @@ export default function CreateAirdrop() {
           </div>
         );
 
-      case 4: // Review
+      case 4: // Review & Approve
         return (
           <div className="space-y-6">
             <ShineBorderCard className="p-4" borderClassName="border border-gray-700">
@@ -430,16 +693,15 @@ export default function CreateAirdrop() {
                 Token Details
               </h3>
               <div className="grid grid-cols-2 gap-3 text-sm">
-                <div className="text-gray-400">Token Type:</div>
+                <div className="text-gray-400">Token:</div>
+                <div className="text-white">{formData.tokenDetails.tokenName} ({formData.tokenDetails.tokenSymbol})</div>
+                <div className="text-gray-400">Address:</div>
+                <div className="text-white truncate">{formData.tokenDetails.tokenAddress || "Not specified"}</div>
+                <div className="text-gray-400">Type:</div>
                 <div className="text-white">{formData.tokenDetails.tokenType}</div>
-                <div className="text-gray-400">Token Address:</div>
-                <div className="text-white">{formData.tokenDetails.tokenAddress || "Not specified"}</div>
-                <div className="text-gray-400">Token Name:</div>
-                <div className="text-white">{formData.tokenDetails.tokenName || "Not specified"}</div>
-                <div className="text-gray-400">Token Symbol:</div>
-                <div className="text-white">{formData.tokenDetails.tokenSymbol || "Not specified"}</div>
-                <div className="text-gray-400">Amount Per Wallet:</div>
-                <div className="text-white">{formData.tokenDetails.tokenAmount || "0"}</div>
+                 <div className="text-gray-400">Total to Airdrop:</div>
+                <div className="text-white">{tokenMetadataInfo ? formatTokenAmount(totalTokensToAirdrop) : totalTokensToAirdrop.toString()} {formData.tokenDetails.tokenSymbol}</div>
+
               </div>
             </ShineBorderCard>
 
@@ -450,45 +712,61 @@ export default function CreateAirdrop() {
               </h3>
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <div className="text-gray-400">Recipients:</div>
-                <div className="text-white">{formData.distribution.recipientAddresses.length} addresses</div>
+                <div className="text-white">{parsedRecipients.length} addresses</div>
                 <div className="text-gray-400">Merkle Tree:</div>
                 <div className="text-white">{formData.distribution.hasMerkleTree ? "Enabled" : "Disabled"}</div>
+                {formData.distribution.hasMerkleTree && merkleRootDisplay && (
+                    <>
+                        <div className="text-gray-400">Merkle Root:</div>
+                        <div className="text-white truncate">{merkleRootDisplay}</div>
+                    </>
+                )}
               </div>
             </ShineBorderCard>
+            
+            {/* Token Allowance Section */}
+            {formData.tokenDetails.tokenAddress && totalTokensToAirdrop > BigInt(0) && tokenMetadataInfo && (
+                 <ShineBorderCard className="p-4" borderClassName="border border-gray-700">
+                    <h3 className="mb-2 flex items-center text-lg font-medium text-white">
+                        <CheckCircle className="mr-2 h-5 w-5" />
+                        Token Allowance
+                    </h3>
+                    {isAllowanceLoading && <p className="text-blue-400">Checking allowance...</p>}
+                    {allowanceError && <p className="text-red-400">Error checking allowance: {allowanceError.message}</p>}
+                    {!isAllowanceLoading && !allowanceError && (
+                        <>
+                            <p className="text-sm text-gray-300 mb-2">
+                                Current allowance for Airdrop Factory ({airdropFactoryAddress?.substring(0,6)}...{airdropFactoryAddress?.substring(airdropFactoryAddress.length-4)}): 
+                                <strong className="text-white ml-1">{tokenMetadataInfo ? formatTokenAmount(allowance) : allowance.toString()} {formData.tokenDetails.tokenSymbol}</strong>
+                            </p>
+                            {hasSufficientAllowance ? (
+                                <div className="flex items-center text-green-400">
+                                    <CheckCircle className="mr-2 h-5 w-5" />
+                                    Sufficient allowance granted.
+                                </div>
+                            ) : (
+                                <div className="space-y-2">
+                                    <p className="text-amber-400">
+                                        You need to approve at least {tokenMetadataInfo ? formatTokenAmount(totalTokensToAirdrop) : totalTokensToAirdrop.toString()} {formData.tokenDetails.tokenSymbol} for the Airdrop Factory contract.
+                                    </p>
+                                    <Button 
+                                        onClick={handleApprove} 
+                                        disabled={isApprovePending || isApproveConfirming}
+                                        className="w-full"
+                                    >
+                                        {isApprovePending && <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Sending Approval...</>}
+                                        {isApproveConfirming && <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Confirming Approval...</>}
+                                        {!isApprovePending && !isApproveConfirming && `Approve ${tokenMetadataInfo ? formatTokenAmount(totalTokensToAirdrop) : totalTokensToAirdrop.toString()} ${formData.tokenDetails.tokenSymbol}`}
+                                    </Button>
+                                    {approveHash && <p className="text-xs text-gray-400">Approval Tx: <a href={`https://etherscan.io/tx/${approveHash}`} target="_blank" rel="noopener noreferrer" className="underline">{approveHash.substring(0,10)}...</a></p>}
+                                </div>
+                            )}
+                             {isApproveSuccess && <p className="text-green-400 mt-2">Approval successful!</p>}
+                        </>
+                    )}
+                </ShineBorderCard>
+            )}
 
-            <ShineBorderCard className="p-4" borderClassName="border border-gray-700">
-              <h3 className="mb-2 flex items-center text-lg font-medium text-white">
-                <Settings className="mr-2 h-5 w-5" />
-                Eligibility Rules
-              </h3>
-              <div className="grid grid-cols-2 gap-3 text-sm">
-                <div className="text-gray-400">KYC Required:</div>
-                <div className="text-white">{formData.eligibility.requireKYC ? "Yes" : "No"}</div>
-                <div className="text-gray-400">Trust Score Required:</div>
-                <div className="text-white">
-                  {formData.eligibility.requireTrustScore ? `Yes (Min: ${formData.eligibility.minimumTrustScore})` : "No"}
-                </div>
-                <div className="text-gray-400">Allowed Regions:</div>
-                <div className="text-white">
-                  {formData.eligibility.allowedRegions?.length ? formData.eligibility.allowedRegions.join(", ") : "All regions"}
-                </div>
-              </div>
-            </ShineBorderCard>
-
-            <ShineBorderCard className="p-4" borderClassName="border border-gray-700">
-              <h3 className="mb-2 flex items-center text-lg font-medium text-white">
-                <Calendar className="mr-2 h-5 w-5" />
-                Timing
-              </h3>
-              <div className="grid grid-cols-2 gap-3 text-sm">
-                <div className="text-gray-400">Start Date:</div>
-                <div className="text-white">{formData.timing.startDate}</div>
-                <div className="text-gray-400">End Date:</div>
-                <div className="text-white">{formData.timing.endDate}</div>
-                <div className="text-gray-400">Claim Deadline:</div>
-                <div className="text-white">{formData.timing.claimDeadline || "Same as end date"}</div>
-              </div>
-            </ShineBorderCard>
 
             <div className="rounded-lg border border-amber-500/20 bg-amber-500/10 p-4">
               <div className="flex items-start">
@@ -497,6 +775,7 @@ export default function CreateAirdrop() {
                   <h4 className="font-medium text-amber-400">Important Notice</h4>
                   <p className="text-sm text-amber-300/70">
                     Creating an airdrop will require signing a transaction and paying gas fees. 
+                    Ensure the Airdrop Factory contract has sufficient token allowance.
                     Please review all details carefully before proceeding.
                   </p>
                 </div>
@@ -509,15 +788,29 @@ export default function CreateAirdrop() {
         return null;
     }
   };
-
+  
   const renderPreviewPanel = () => {
+    const amountDisplay = tokenMetadataInfo && totalTokensToAirdrop > BigInt(0) && parsedRecipients.length > 0
+      ? `${tokenMetadataInfo ? formatTokenAmount(parsedRecipients[0].amount) : parsedRecipients[0].amount.toString()} (example first recipient)`
+      : `Not set`;
+
+    // Consistent date formatting to avoid hydration mismatch
+    const formatDateForPreview = (dateString: string) => {
+      if (!dateString) return 'N/A';
+      const date = new Date(dateString);
+      // Pad month and day with leading zero if needed for MM/DD/YYYY format
+      const month = (date.getMonth() + 1).toString().padStart(2, '0');
+      const day = date.getDate().toString().padStart(2, '0');
+      const year = date.getFullYear();
+      return `${month}/${day}/${year}`;
+    };
+
     return (
       <div className="sticky top-8">
         <GlassmorphismCard className="overflow-hidden p-5">
           <h3 className="mb-4 text-lg font-semibold text-white">Airdrop Preview</h3>
           
           <div className="flex flex-col items-center">
-            {/* Token logo */}
             <div className="mb-3 h-16 w-16 overflow-hidden rounded-full bg-gray-800">
               {formData.tokenDetails.logoUrl ? (
                 <Image
@@ -534,7 +827,6 @@ export default function CreateAirdrop() {
               )}
             </div>
             
-            {/* Token name & symbol */}
             <h4 className="mb-1 text-xl font-bold text-white">
               {formData.tokenDetails.tokenName || "Token Name"}
             </h4>
@@ -542,15 +834,20 @@ export default function CreateAirdrop() {
               {formData.tokenDetails.tokenSymbol || "SYMBOL"}
             </p>
             
-            {/* Amount per wallet */}
             <div className="mb-6 w-full rounded-lg bg-gray-800/50 p-3 text-center">
-              <p className="text-sm text-gray-400">Amount Per Wallet</p>
-              <p className="text-xl font-bold text-white">
-                {formData.tokenDetails.tokenAmount || "0"} {formData.tokenDetails.tokenSymbol || "SYMBOL"}
+              <p className="text-sm text-gray-400">
+                {formData.distribution.hasMerkleTree ? "Amount (Example)" : "Amount Per Wallet"}
               </p>
+              <p className="text-xl font-bold text-white">
+                 {amountDisplay} {formData.tokenDetails.tokenSymbol || "SYMBOL"}
+              </p>
+               {formData.distribution.hasMerkleTree && parsedRecipients.length > 0 && tokenMetadataInfo && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    Total: {tokenMetadataInfo ? formatTokenAmount(totalTokensToAirdrop) : totalTokensToAirdrop.toString()} {formData.tokenDetails.tokenSymbol} for {parsedRecipients.length} recipients
+                  </p>
+                )}
             </div>
             
-            {/* Key details */}
             <div className="w-full space-y-3">
               <div className="flex items-center justify-between">
                 <span className="text-sm text-gray-400">Type:</span>
@@ -558,16 +855,16 @@ export default function CreateAirdrop() {
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm text-gray-400">Recipients:</span>
-                <span className="text-sm text-white">{formData.distribution.recipientAddresses.length}</span>
+                <span className="text-sm text-white">{parsedRecipients.length > 0 ? parsedRecipients.length : formData.distribution.recipientAddresses.length}</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-sm text-gray-400">KYC Required:</span>
-                <span className="text-sm text-white">{formData.eligibility.requireKYC ? "Yes" : "No"}</span>
+                <span className="text-sm text-gray-400">Merkle Tree:</span>
+                <span className="text-sm text-white">{formData.distribution.hasMerkleTree ? "Yes" : "No"}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm text-gray-400">Duration:</span>
                 <span className="text-sm text-white">
-                  {new Date(formData.timing.startDate).toLocaleDateString()} - {new Date(formData.timing.endDate).toLocaleDateString()}
+                  {formatDateForPreview(formData.timing.startDate)} - {formatDateForPreview(formData.timing.endDate)}
                 </span>
               </div>
             </div>
@@ -579,7 +876,6 @@ export default function CreateAirdrop() {
 
   return (
     <div className="relative min-h-screen w-full bg-black">
-      {/* Background effects */}
       <div className="fixed inset-0 -z-10 opacity-30">
         <Particles
           className="absolute inset-0"
@@ -589,11 +885,10 @@ export default function CreateAirdrop() {
         />
       </div>
 
-      {/* Success confetti */}
       <Confetti trigger={showConfetti} duration={5000} />
 
       <div className="container mx-auto px-4 py-8">
-        {isSuccess ? (
+        {isCreateAirdropSuccess ? (
           <div className="flex flex-col items-center justify-center py-16">
             <AnimatedBeamsContainer
               beams={5}
@@ -608,7 +903,8 @@ export default function CreateAirdrop() {
             
             <h1 className="mt-6 text-3xl font-bold text-white">Airdrop Created!</h1>
             <p className="mt-2 text-center text-lg text-gray-300">
-              Your airdrop has been successfully created and is now live.
+              Your airdrop has been successfully created. Transaction: 
+              <a href={`https://etherscan.io/tx/${createAirdropHash}`} target="_blank" rel="noopener noreferrer" className="underline ml-1">{createAirdropHash?.substring(0,10)}...</a>
             </p>
             
             <div className="mt-8 flex space-x-4">
@@ -646,12 +942,9 @@ export default function CreateAirdrop() {
                     key={step.id}
                     className="relative flex items-center"
                   >
-                    {/* Step connector line */}
                     {index > 0 && (
                       <div className={`hidden h-[2px] w-12 md:block ${index <= currentStep ? 'bg-blue-500' : 'bg-gray-700'}`} />
                     )}
-                    
-                    {/* Step indicator */}
                     <div 
                       className={`flex h-10 w-10 items-center justify-center rounded-full ${
                         index < currentStep
@@ -663,8 +956,6 @@ export default function CreateAirdrop() {
                     >
                       <step.icon className="h-5 w-5" />
                     </div>
-                    
-                    {/* Step title */}
                     <span className={`ml-2 hidden text-sm md:block ${
                       index <= currentStep ? 'text-white' : 'text-gray-400'
                     }`}>
@@ -687,7 +978,7 @@ export default function CreateAirdrop() {
                   <div className="mt-8 flex justify-between">
                     <motion.button
                       className={`flex items-center rounded-lg border border-gray-700 bg-gray-900 px-4 py-2 text-white ${
-                        currentStep === 0 ? 'opacity-50' : 'hover:border-gray-600'
+                        currentStep === 0 ? 'opacity-50 cursor-not-allowed' : 'hover:border-gray-600'
                       }`}
                       onClick={prevStep}
                       disabled={currentStep === 0}
@@ -701,10 +992,11 @@ export default function CreateAirdrop() {
                     {currentStep < steps.length - 1 ? (
                       <CoolMode colors={["#3b82f6", "#8b5cf6", "#ec4899"]}>
                         <motion.button
-                          className="flex items-center rounded-lg bg-gradient-to-r from-blue-600 to-purple-600 px-4 py-2 text-white shadow-lg"
+                          className={`flex items-center rounded-lg bg-gradient-to-r from-blue-600 to-purple-600 px-4 py-2 text-white shadow-lg ${isNextDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
                           onClick={nextStep}
-                          whileHover={{ scale: 1.02 }}
-                          whileTap={{ scale: 0.98 }}
+                          disabled={isNextDisabled}
+                          whileHover={!isNextDisabled ? { scale: 1.02 } : {}}
+                          whileTap={!isNextDisabled ? { scale: 0.98 } : {}}
                         >
                           Next
                           <ArrowRight className="ml-2 h-4 w-4" />
@@ -713,16 +1005,16 @@ export default function CreateAirdrop() {
                     ) : (
                       <CoolMode colors={["#10b981", "#059669", "#047857"]}>
                         <motion.button
-                          className="flex items-center rounded-lg bg-gradient-to-r from-green-600 to-green-700 px-6 py-2 text-white shadow-lg"
+                          className={`flex items-center rounded-lg bg-gradient-to-r from-green-600 to-green-700 px-6 py-2 text-white shadow-lg ${(!hasSufficientAllowance && totalTokensToAirdrop > BigInt(0)) || isCreatingAirdrop || isCreateAirdropConfirming ? 'opacity-50 cursor-not-allowed' : ''}`}
                           onClick={handleSubmit}
-                          disabled={isLoading}
-                          whileHover={{ scale: 1.02 }}
-                          whileTap={{ scale: 0.98 }}
+                          disabled={(!hasSufficientAllowance && totalTokensToAirdrop > BigInt(0)) || isCreatingAirdrop || isCreateAirdropConfirming}
+                          whileHover={!((!hasSufficientAllowance && totalTokensToAirdrop > BigInt(0)) || isCreatingAirdrop || isCreateAirdropConfirming) ? { scale: 1.02 } : {}}
+                          whileTap={!((!hasSufficientAllowance && totalTokensToAirdrop > BigInt(0)) || isCreatingAirdrop || isCreateAirdropConfirming) ? { scale: 0.98 } : {}}
                         >
-                          {isLoading ? (
+                          {isCreatingAirdrop || isCreateAirdropConfirming ? (
                             <>
-                              <span className="mr-2 block h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                              Creating...
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              {isCreatingAirdrop ? "Sending Transaction..." : "Confirming Airdrop..."}
                             </>
                           ) : (
                             <>
@@ -734,6 +1026,8 @@ export default function CreateAirdrop() {
                       </CoolMode>
                     )}
                   </div>
+                   {createAirdropError && <p className="mt-4 text-sm text-red-400">Error: {createAirdropError.message}</p>}
+
                 </GlassmorphismCard>
               </div>
               

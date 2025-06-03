@@ -493,40 +493,51 @@ export function useTokenMetadata(tokenAddress?: `0x${string}`) {
  * Hook to create a new airdrop
  */
 export function useCreateAirdrop() {
-  const { writeContractAsync, isPending, data: hash, error: writeError } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess, error: transactionError } = useWaitForTransactionReceipt({
-    hash,
-  });
+  const { data: hash, writeContractAsync, isPending, error, status } = useWriteContract();
 
-  // Create airdrop function
   const createAirdrop = async (
-    name: string,
-    symbol: string,
+    // name: string, // Kept for potential off-chain use or UI, not passed to this specific contract call
+    // symbol: string, // Kept for potential off-chain use or UI, not passed to this specific contract call
     tokenAddress: `0x${string}`,
-    merkleRoot: `0x${string}`,
-    totalAmount: bigint,
+    merkleRoot: `0x${string}`, // bytes32
+    requiredTrustScore: bigint,
+    requiredKYCLevel: bigint,
+    // totalAmount: bigint, // Not a direct parameter for factory.createAirdrop
     startTime: bigint,
     endTime: bigint
   ) => {
     try {
-      return await writeContractAsync({
-        ...getContractConfig('airdropFactory'),
+      console.log("Calling createAirdrop with params:", {
+        tokenAddress,
+        merkleRoot,
+        requiredTrustScore: requiredTrustScore.toString(),
+        requiredKYCLevel: requiredKYCLevel.toString(),
+        startTime: startTime.toString(),
+        endTime: endTime.toString(),
+      });
+      const tx = await writeContractAsync({
+        abi: getContractConfig('airdropFactory').abi,
+        address: getContractConfig('airdropFactory').address,
         functionName: 'createAirdrop',
-        args: [
-          name,
-          symbol,
+        args: [ // These are the 6 arguments for the contract
           tokenAddress,
           merkleRoot,
-          totalAmount,
+          requiredTrustScore,
+          requiredKYCLevel,
           startTime,
           endTime
         ],
+        gasPrice: BigInt(300000000000), // 300 Gwei, from Hardhat config
+        gas: BigInt(3000000) 
       });
-    } catch (error) {
-      console.error("Error creating airdrop:", error);
-      throw error;
+      return tx;
+    } catch (err) {
+      console.error("Error creating airdrop:", err);
+      throw err; // Re-throw to be caught by the caller and update component state
     }
   };
+
+  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
 
   return {
     createAirdrop,
@@ -534,7 +545,7 @@ export function useCreateAirdrop() {
     isConfirming,
     isSuccess,
     hash,
-    error: writeError || transactionError,
+    error,
   };
 }
 
