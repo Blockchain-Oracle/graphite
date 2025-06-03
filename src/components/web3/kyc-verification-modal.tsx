@@ -1,8 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion } from "motion/react";
 import { cn } from "@/lib/utils";
+import { useKYC } from "@/lib/hooks/useKYC";
+import { useTrustScore } from "@/lib/hooks/useTrustScore";
+import { useAccount } from "wagmi";
 
 interface KycVerificationModalProps {
   isOpen: boolean;
@@ -10,35 +13,24 @@ interface KycVerificationModalProps {
   onVerificationComplete: (trustScore: number) => void;
 }
 
+// Simplified KYC steps for blockchain integration
 const kycSteps = [
   {
-    id: "personal",
-    title: "Personal Information",
-    description: "Basic identity verification",
-    fields: ["Full Name", "Date of Birth"],
+    id: "connect",
+    title: "Connect Wallet",
+    description: "Verify your blockchain identity",
+    fields: [],
   },
   {
-    id: "contact",
-    title: "Contact Details",
-    description: "Verify your contact information",
-    fields: ["Email", "Phone Number"],
-  },
-  {
-    id: "address",
-    title: "Address Verification",
-    description: "Confirm your residential address",
-    fields: ["Country", "City", "Street Address"],
-  },
-  {
-    id: "identity",
-    title: "Identity Document",
-    description: "Upload a government-issued ID",
-    fields: ["ID Type", "ID Number", "Document Upload"],
+    id: "verification",
+    title: "Request Verification",
+    description: "Submit your wallet for KYC verification",
+    fields: [],
   },
   {
     id: "complete",
     title: "Verification Complete",
-    description: "Your information is being processed",
+    description: "Your verification request has been submitted",
     fields: [],
   },
 ];
@@ -49,14 +41,46 @@ export function KycVerificationModal({
   onVerificationComplete,
 }: KycVerificationModalProps) {
   const [currentStep, setCurrentStep] = useState(0);
-  const [formData, setFormData] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const { address } = useAccount();
+  const { kycLevel, requestKycVerification, isPending, isSuccess, refetch } = useKYC();
+  const { trustScore, isLoading: isTrustScoreLoading } = useTrustScore(address);
+
+  // Move to first step if wallet is connected, otherwise stay at connect wallet step
+  useEffect(() => {
+    if (address && currentStep === 0) {
+      setCurrentStep(1);
+    }
+  }, [address, currentStep]);
+
+  // When verification is successful, move to completion step
+  useEffect(() => {
+    if (isSuccess) {
+      setCurrentStep(2);
+      setIsSubmitting(false);
+      
+      // Refetch KYC level after success
+      refetch();
+    }
+  }, [isSuccess, refetch]);
 
   if (!isOpen) return null;
 
-  const handleNextStep = () => {
+  const handleNextStep = async () => {
     if (currentStep < kycSteps.length - 1) {
-      setCurrentStep(currentStep + 1);
+      // If we're on the verification step, submit the verification request
+      if (currentStep === 1) {
+        setIsSubmitting(true);
+        try {
+          await requestKycVerification();
+          // Note: state updates will happen in the useEffect when isSuccess changes
+        } catch (error) {
+          console.error("Error requesting KYC verification:", error);
+          setIsSubmitting(false);
+        }
+      } else {
+        setCurrentStep(currentStep + 1);
+      }
     } else {
       // Complete the verification process
       handleComplete();
@@ -69,24 +93,15 @@ export function KycVerificationModal({
     }
   };
 
-  const handleInputChange = (field: string, value: string) => {
-    setFormData({
-      ...formData,
-      [field]: value,
-    });
-  };
-
   const handleComplete = () => {
     setIsSubmitting(true);
     
-    // Simulate an API call for KYC verification
+    // Use the actual trust score from the contract
     setTimeout(() => {
-      // Generate a random trust score between 200 and 800
-      const trustScore = Math.floor(Math.random() * 600) + 200;
       onVerificationComplete(trustScore);
       setIsSubmitting(false);
       onClose();
-    }, 2000);
+    }, 1000);
   };
 
   const step = kycSteps[currentStep];
@@ -120,7 +135,7 @@ export function KycVerificationModal({
         <div className="mb-6">
           <h2 className="text-2xl font-bold text-white">KYC Verification</h2>
           <p className="text-gray-400">
-            Complete the verification process to get your trust badge
+            Complete verification to increase your trust score
           </p>
         </div>
 
@@ -149,64 +164,66 @@ export function KycVerificationModal({
           <h3 className="mb-1 text-xl font-semibold text-white">{step.title}</h3>
           <p className="mb-6 text-sm text-gray-400">{step.description}</p>
 
-          {/* Form fields */}
-          {step.fields.length > 0 ? (
-            <div className="space-y-4">
-              {step.fields.map((field) => (
-                <div key={field} className="space-y-1">
-                  <label className="text-sm font-medium text-gray-300">
-                    {field}
-                  </label>
-                  {field === "Document Upload" ? (
-                    <div className="flex items-center justify-center rounded-lg border-2 border-dashed border-gray-700 bg-gray-800 p-6">
-                      <div className="text-center">
-                        <svg
-                          className="mx-auto h-12 w-12 text-gray-500"
-                          stroke="currentColor"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth="2"
-                            d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3-3m0 0l3 3m-3-3v12"
-                          />
-                        </svg>
-                        <div className="mt-2 flex text-sm text-gray-400">
-                          <label
-                            htmlFor="file-upload"
-                            className="relative cursor-pointer rounded-md bg-gray-900 font-medium text-indigo-400 focus-within:outline-none hover:text-indigo-300"
-                          >
-                            <span>Upload a file</span>
-                            <input
-                              id="file-upload"
-                              name="file-upload"
-                              type="file"
-                              className="sr-only"
-                              onChange={() => handleInputChange(field, "document-uploaded")}
-                            />
-                          </label>
-                          <p className="pl-1">or drag and drop</p>
-                        </div>
-                        <p className="text-xs text-gray-500">
-                          PNG, JPG, PDF up to 10MB
-                        </p>
-                      </div>
-                    </div>
-                  ) : (
-                    <input
-                      type={field.includes("Date") ? "date" : "text"}
-                      className="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                      placeholder={`Enter your ${field.toLowerCase()}`}
-                      value={formData[field] || ""}
-                      onChange={(e) => handleInputChange(field, e.target.value)}
-                    />
-                  )}
-                </div>
-              ))}
+          {/* KYC level indicator */}
+          {kycLevel !== undefined && (
+            <div className="mb-4 rounded-lg bg-gray-800 p-4">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-gray-400">Current KYC Level:</span>
+                <span className="font-medium text-white">Level {kycLevel}</span>
+              </div>
+              
+              {/* KYC Level bar */}
+              <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-gray-700">
+                <div 
+                  className="h-full bg-gradient-to-r from-blue-500 to-purple-600 transition-all duration-300 ease-out"
+                  style={{ width: `${(kycLevel / 3) * 100}%` }}
+                />
+              </div>
+              <div className="mt-1 flex justify-between text-xs text-gray-500">
+                <span>Level 0</span>
+                <span>Level 1</span>
+                <span>Level 2</span>
+                <span>Level 3</span>
+              </div>
             </div>
-          ) : (
+          )}
+
+          {/* Steps content */}
+          {currentStep === 0 && (
+            <div className="rounded-lg bg-gray-800 p-4 text-center">
+              <div className="mb-4 text-gray-300">
+                {!address ? (
+                  <>
+                    <p>Please connect your wallet to continue with KYC verification.</p>
+                    <p className="mt-2 text-sm text-gray-500">This will verify your blockchain identity.</p>
+                  </>
+                ) : (
+                  <>
+                    <p>Wallet connected!</p>
+                    <p className="mt-2 text-sm break-all">{address}</p>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+
+          {currentStep === 1 && (
+            <div className="rounded-lg bg-gray-800 p-4 text-center">
+              <div className="mb-4 text-gray-300">
+                <p>By proceeding, you will submit your wallet address for KYC verification.</p>
+                <p className="mt-2 text-sm text-gray-500">Once verified, your trust score will be updated.</p>
+              </div>
+              
+              <div className="mt-4 flex items-center justify-center">
+                <svg className="mr-2 h-5 w-5 text-yellow-500" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
+                  <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                </svg>
+                <span className="text-sm text-yellow-500">This transaction requires blockchain confirmation.</span>
+              </div>
+            </div>
+          )}
+
+          {currentStep === 2 && (
             // Final confirmation step
             <div className="flex flex-col items-center justify-center py-8 text-center">
               <div className="mb-4 rounded-full bg-blue-500/20 p-4">
@@ -215,11 +232,23 @@ export function KycVerificationModal({
                 </svg>
               </div>
               <h4 className="mb-2 text-xl font-semibold text-white">
-                Processing Verification
+                Verification Request Submitted
               </h4>
-              <p className="text-gray-400">
-                We're verifying your information. You'll receive your trust score shortly.
+              <p className="text-gray-400 mb-4">
+                Your KYC verification request has been submitted to the network.
               </p>
+              <div className="rounded-lg bg-gray-800 p-4 w-full">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-sm text-gray-400">Current Trust Score:</span>
+                  <span className="font-medium text-white">{trustScore}</span>
+                </div>
+                <div className="h-2 w-full overflow-hidden rounded-full bg-gray-700">
+                  <div 
+                    className="h-full bg-gradient-to-r from-blue-500 to-indigo-600 transition-all duration-300 ease-out"
+                    style={{ width: `${(trustScore / 1000) * 100}%` }}
+                  />
+                </div>
+              </div>
             </div>
           )}
         </motion.div>
@@ -232,22 +261,22 @@ export function KycVerificationModal({
               "rounded-lg border border-gray-700 px-4 py-2 text-sm font-medium text-white transition-colors",
               isFirstStep ? "invisible" : "hover:bg-gray-800"
             )}
-            disabled={isFirstStep}
+            disabled={isFirstStep || isPending || isSubmitting}
           >
             Back
           </button>
           
           <button
             onClick={handleNextStep}
-            disabled={isSubmitting}
+            disabled={isPending || isSubmitting || (currentStep === 0 && !address)}
             className={cn(
               "rounded-lg bg-gradient-to-r px-4 py-2 text-sm font-medium text-white transition-all",
-              isSubmitting 
+              isPending || isSubmitting || (currentStep === 0 && !address)
                 ? "from-gray-600 to-gray-700 opacity-70" 
                 : "from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
             )}
           >
-            {isSubmitting ? (
+            {isPending || isSubmitting ? (
               <div className="flex items-center gap-2">
                 <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24">
                   <circle
@@ -266,8 +295,12 @@ export function KycVerificationModal({
                 </svg>
                 <span>Processing...</span>
               </div>
+            ) : currentStep === 0 ? (
+              !address ? "Connect Wallet" : "Continue"
             ) : isLastStep ? (
               "Complete Verification"
+            ) : currentStep === 1 ? (
+              "Submit Verification"
             ) : (
               "Continue"
             )}

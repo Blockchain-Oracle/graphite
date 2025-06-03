@@ -4,8 +4,63 @@ import { getDefaultConfig, RainbowKitProvider } from '@rainbow-me/rainbowkit';
 import '@rainbow-me/rainbowkit/styles.css';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ReactNode, useState } from 'react';
-import { WagmiProvider, http } from 'wagmi';
-import { sepolia } from 'wagmi/chains';
+import { WagmiProvider, http, createConfig } from 'wagmi';
+import { Chain } from 'wagmi/chains';
+
+// Define Graphite Testnet
+const graphiteTestnet = {
+  id: 54170,
+  name: 'Graphite Testnet',
+  nativeCurrency: {
+    name: 'Graphite',
+    symbol: '@G',
+    decimals: 18,
+  },
+  rpcUrls: {
+    default: {
+      http: ['https://anon-entrypoint-test-1.atgraphite.com'],
+      webSocket: ['wss://ws-anon-entrypoint-test-1.atgraphite.com'],
+    },
+    public: {
+      http: ['https://anon-entrypoint-test-1.atgraphite.com'],
+      webSocket: ['wss://ws-anon-entrypoint-test-1.atgraphite.com'],
+    },
+  },
+  blockExplorers: {
+    default: {
+      name: 'Graphite Explorer',
+      url: 'https://test.atgraphite.com',
+    },
+  },
+  testnet: true,
+} as const satisfies Chain;
+
+// Define Graphite Mainnet
+const graphiteMainnet = {
+  id: 440017,
+  name: 'Graphite Mainnet',
+  nativeCurrency: {
+    name: 'Graphite',
+    symbol: '@G',
+    decimals: 18,
+  },
+  rpcUrls: {
+    default: {
+      http: ['https://anon-entrypoint-1.atgraphite.com'],
+      webSocket: ['wss://ws-anon-entrypoint-1.atgraphite.com'],
+    },
+    public: {
+      http: ['https://anon-entrypoint-1.atgraphite.com'],
+      webSocket: ['wss://ws-anon-entrypoint-1.atgraphite.com'],
+    },
+  },
+  blockExplorers: {
+    default: {
+      name: 'Graphite Explorer',
+      url: 'https://main.atgraphite.com',
+    },
+  },
+} as const satisfies Chain;
 
 interface Web3ProviderProps {
   children: ReactNode;
@@ -18,9 +73,10 @@ export function Web3Provider({ children }: Web3ProviderProps) {
   const config = getDefaultConfig({
     appName: 'Graphite Ecosystem',
     projectId: 'graphite-ecosystem', // Replace with your WalletConnect projectId
-    chains: [sepolia],
+    chains: [graphiteTestnet, graphiteMainnet],
     transports: {
-      [sepolia.id]: http(),
+      [graphiteTestnet.id]: http(),
+      [graphiteMainnet.id]: http(),
     },
   });
 
