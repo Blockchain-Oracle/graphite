@@ -43,8 +43,8 @@ export function useKYC() {
   };
 
   const reputationContractConfig = {
-    address: CONTRACT_ADDRESSES.reputation as `0x${string}`, // Assuming this is defined
-    abi: ABIS.reputation, // Corrected: Use the native IGraphiteReputation ABI
+    address: CONTRACT_ADDRESSES.reputation as `0x${string}`,
+    abi: ABIS.reputation,
   };
 
   // Query for paid fee status (formerly activation status)
@@ -119,7 +119,7 @@ export function useKYC() {
           functionName: 'getReputation',
           args: [address],
         }) as bigint;
-        return Number(rawScore);
+        return Number(rawScore);//TODO: scale it to 0-1000
       } catch (error) {
         console.error('Error fetching reputation score:', error);
         return 0; // Default to 0 on error

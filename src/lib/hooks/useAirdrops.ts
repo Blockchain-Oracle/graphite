@@ -772,6 +772,7 @@ export interface MerkleProofData {
   root: `0x${string}`;
   proofs: Record<string, `0x${string}`[]>;
   recipients: AirdropRecipient[];
+  leafLookup: Record<string, `0x${string}`>;
 }
 
 /**
@@ -792,44 +793,48 @@ export function useMerkleTree() {
     setError(null);
     
     try {
-      // Note: In a production environment, you'd use a proper Merkle tree library like merkletreejs
-      // For this hook, we're implementing a simplified version to demonstrate the concept
+      // Dynamically import MerkleTree to avoid issues if it's not immediately available or for server-side contexts
+      const { default: MerkleTree } = await import('merkletreejs');
+
+      const leafLookup: Record<string, `0x${string}`> = {};
       
-      // Step 1: Hash and sort all leaf nodes
+      // Step 1: Create leaf nodes
       const leaves = recipients.map(recipient => {
-        // Hash address and amount together
-        return keccak256(
+        const leaf = keccak256(
           encodeAbiParameters(
             [{ type: 'address' }, { type: 'uint256' }],
             [recipient.address, recipient.amount]
           )
-        );
+        ) as `0x${string}`;
+        leafLookup[recipient.address.toLowerCase()] = leaf;
+        return leaf;
       });
       
-      // Simple implementation for demonstration purposes
-      // In a real app, use a library like merkletreejs to properly implement this
+      // Step 2: Create the Merkle tree
+      const tree = new MerkleTree(leaves, keccak256, { sortPairs: true });
       
-      // Simulate merkle root - In a real implementation, you would build the tree and get the root
-      const pseudoRoot = keccak256(toHex(leaves.join(''))) as `0x${string}`;
+      // Step 3: Get the Merkle root
+      const root = tree.getHexRoot() as `0x${string}`;
       
-      // Generate pseudo-proofs for each recipient
-      // In a real implementation, you would generate actual Merkle proofs
+      // Step 4: Generate proofs for each recipient
       const proofs: Record<string, `0x${string}`[]> = {};
       recipients.forEach(recipient => {
-        // Create a deterministic proof based on address
-        // This is just for simulation - use a proper Merkle tree library in production
-        const addressHash = keccak256(recipient.address);
-        proofs[recipient.address.toLowerCase()] = [addressHash as `0x${string}`];
+        const leaf = leafLookup[recipient.address.toLowerCase()];
+        if (leaf) {
+          // Cast each element of the proof array to `0x${string}`
+          proofs[recipient.address.toLowerCase()] = tree.getHexProof(leaf).map(p => p as `0x${string}`);
+        }
       });
       
-      const merkleData: MerkleProofData = {
-        root: pseudoRoot,
+      const newMerkleData: MerkleProofData = {
+        root,
         proofs,
-        recipients
+        recipients,
+        leafLookup
       };
       
-      setMerkleData(merkleData);
-      return merkleData;
+      setMerkleData(newMerkleData);
+      return newMerkleData;
       
     } catch (err) {
       console.error("Error generating Merkle tree:", err);
@@ -847,7 +852,7 @@ export function useMerkleTree() {
    * @returns Array of proof hashes or null if not found
    */
   const getProofForAddress = (address: `0x${string}`): `0x${string}`[] | null => {
-    if (!merkleData) return null;
+    if (!merkleData || !merkleData.proofs) return null;
     
     const normalizedAddress = address.toLowerCase();
     return merkleData.proofs[normalizedAddress] || null;
@@ -900,14 +905,27 @@ export function useMerkleTree() {
           const recipients: AirdropRecipient[] = [];
           
           // Process each row (skip header if it exists)
+          // Assuming CSV format: address,amount
           for (let i = 0; i < rows.length; i++) {
             const row = rows[i].trim();
-            if (!row) continue;
+            if (!row) continue; // Skip empty rows
             
-            const [address, amountStr] = row.split(',').map(part => part.trim());
+            // Handle potential header row: simple check, can be made more robust
+            if (i === 0 && row.toLowerCase().includes('address') && row.toLowerCase().includes('amount')) {
+                console.log("Skipping header row:", row);
+                continue;
+            }
+
+            const parts = row.split(',');
+            if (parts.length < 2) {
+                console.warn(`Skipping malformed row (not enough parts) at line ${i + 1}: ${row}`);
+                continue;
+            }
+            const address = parts[0].trim();
+            const amountStr = parts[1].trim();
             
             // Validate address format
-            if (!address || !address.startsWith('0x') || address.length !== 42) {
+            if (!address.startsWith('0x') || address.length !== 42) {
               console.warn(`Invalid address format at line ${i + 1}: ${address}`);
               continue;
             }
@@ -915,7 +933,8 @@ export function useMerkleTree() {
             // Parse amount
             let amount: bigint;
             try {
-              amount = BigInt(amountStr);
+              // Handle potential quotes around amount if CSV exports them
+              amount = BigInt(amountStr.replace(/"/g, ''));
             } catch (err) {
               console.warn(`Invalid amount format at line ${i + 1}: ${amountStr}`);
               continue;
@@ -927,14 +946,24 @@ export function useMerkleTree() {
             });
           }
           
+          if (recipients.length === 0 && rows.length > 0) {
+            reject(new Error('CSV parsed but no valid recipient data found. Check format (address,amount) and ensure no extra headers.'));
+            return;
+          }
+          if (recipients.length === 0 && rows.length === 0) {
+            reject(new Error('CSV file is empty or contains no processable rows.'));
+            return;
+          }
+          
           resolve(recipients);
         } catch (err) {
-          reject(err instanceof Error ? err : new Error('Failed to parse CSV file'));
+          reject(err instanceof Error ? err : new Error('Failed to parse CSV file content'));
         }
       };
       
-      reader.onerror = () => {
-        reject(new Error('Error reading CSV file'));
+      reader.onerror = (err) => { // Added error object to onerror
+        console.error("FileReader error:", err);
+        reject(new Error('Error reading CSV file with FileReader'));
       };
       
       reader.readAsText(file);
