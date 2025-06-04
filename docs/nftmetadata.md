@@ -1,4 +1,3 @@
-
 # NFT Metadata Format for Graphite Trust Badge
 
 The NFT metadata server should respond to the URL query with standard JSON metadata that follows the OpenSea metadata standard (which is compatible with most NFT platforms). Here's how it works:
@@ -23,8 +22,8 @@ The server should return a JSON object with this structure:
 {
   "name": "Graphite Trust Badge #1: Elite Developer",
   "description": "This badge represents a trust score of 750, placing the holder in the Influencer tier of the Graphite ecosystem. The holder has demonstrated significant trust and reputation.",
-  "image": "https://example.com/api/badge-images/1.png",
-  "external_url": "https://example.com/viewer/1",
+  "image": "https://your-frontend-url.com/api/badge-images/1",
+  "external_url": "https://your-frontend-url.com/nfts/view/1",
   "attributes": [
     {
       "trait_type": "Trust Score",

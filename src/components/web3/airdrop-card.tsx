@@ -10,6 +10,7 @@ import { Confetti } from "@/components/magicui/confetti";
 import { CoolMode } from "@/components/magicui/cool-mode";
 import { ShineBorderCard } from "@/components/magicui/shine-border";
 import { Meteors } from "@/components/magicui/meteors";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 export interface AirdropData {
   id: string;
@@ -17,6 +18,7 @@ export interface AirdropData {
   symbol: string;
   amount: number;
   logoUrl: string;
+  tokenContractAddress: string;
   creatorName: string;
   creatorAddress: string;
   startDate: string;
@@ -171,14 +173,10 @@ export function AirdropCard({
         <div className="p-5">
           {/* Header with token info */}
           <div className="mb-4 flex items-center">
-            <div className="relative mr-3 h-12 w-12 overflow-hidden rounded-full">
-              <Image 
-                src={airdrop.logoUrl} 
-                alt={airdrop.name}
-                fill
-                className="object-cover"
-              />
-            </div>
+            <Avatar className="relative mr-3 h-12 w-12 overflow-hidden rounded-full">
+              <AvatarImage src={`https://effigy.im/a/${airdrop.tokenContractAddress}.svg`} alt={`${airdrop.name} logo`} />
+              <AvatarFallback className="bg-neutral-700 text-neutral-300">{airdrop.symbol ? airdrop.symbol.substring(0, 2).toUpperCase() : '??'}</AvatarFallback>
+            </Avatar>
             <div className="flex flex-1 flex-col">
               <h3 className="text-lg font-semibold text-white">{airdrop.name}</h3>
               <div className="flex items-center text-sm text-gray-400">

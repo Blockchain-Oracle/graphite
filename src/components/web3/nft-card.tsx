@@ -15,6 +15,7 @@ interface NFTCardProps {
 }
 
 export function NFTCard({ nft, showActions = true }: NFTCardProps) {
+  console.log(nft);
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
   const tierColor = getTierColor(nft.tier);

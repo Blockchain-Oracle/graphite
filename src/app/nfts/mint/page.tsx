@@ -78,10 +78,9 @@ const AVAILABLE_MODELS: ModelOption[] = [
 export default function MintNFTPage() {
   const router = useRouter();
   const [userTrustScore] = useState(MOCK_USER_TRUST_SCORE);
-  const [userAddress] = useState(MOCK_USER_ADDRESS);
   const [selectedModelIndex, setSelectedModelIndex] = useState(0);
   const [showConfetti, setShowConfetti] = useState(false);
-  const { mint, isMinting, mintError, mintedNFT } = useMintNFT();
+  const { mint, isProcessing, isSuccess, error: mintError, hash } = useMintNFT();
   
   // Filter available models based on user's trust score
   const eligibleModels = AVAILABLE_MODELS.filter(
@@ -106,20 +105,24 @@ export default function MintNFTPage() {
   
   // Handle mint NFT
   const handleMint = async () => {
-    if (!selectedModel || isMinting) return;
+    if (!selectedModel || isProcessing) return;
     
     try {
-      await mint(userTrustScore, selectedModel.tier, selectedModel.image);
+      await mint();
+    } catch (error) {
+      console.error('Error initiating minting process:', error);
+    }
+  };
+
+  // Effect to handle successful minting
+  useEffect(() => {
+    if (isSuccess) {
       setShowConfetti(true);
-      
-      // Redirect to the gallery after 3 seconds
       setTimeout(() => {
         router.push('/nfts/gallery');
       }, 3000);
-    } catch (error) {
-      console.error('Error minting NFT:', error);
     }
-  };
+  }, [isSuccess, router]);
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -140,10 +143,13 @@ export default function MintNFTPage() {
             />
           </div>
           
-          {mintedNFT && (
+          {isSuccess && hash && (
             <div className="mt-6 p-4 bg-green-100/10 border border-green-500/30 rounded-lg">
               <p className="text-green-500 font-semibold">
-                Successfully minted your {mintedNFT.tier} Guardian NFT!
+                Successfully minted your Guardian NFT!
+              </p>
+              <p className="text-sm text-muted-foreground mt-1">
+                Transaction: <a href={`https://sepolia.etherscan.io/tx/${hash}`} target="_blank" rel="noopener noreferrer" className="underline hover:text-primary">{hash.substring(0,10)}...{hash.substring(hash.length-8)}</a>
               </p>
               <p className="text-sm text-muted-foreground mt-2">
                 Redirecting to your gallery...
@@ -276,13 +282,11 @@ export default function MintNFTPage() {
             <Button
               className="px-8 py-6 text-lg"
               onClick={handleMint}
-              disabled={isMinting || mintedNFT !== null}
+              disabled={isProcessing || isSuccess}
             >
-              {isMinting
-                ? 'Minting...'
-                : mintedNFT
-                ? 'Minted!'
-                : `Mint ${selectedModel.name}`}
+              {isProcessing && 'Minting...'}
+              {isSuccess && 'Minted!'}
+              {!isProcessing && !isSuccess && `Mint ${selectedModel.name}`}
             </Button>
           </CoolMode>
         </div>

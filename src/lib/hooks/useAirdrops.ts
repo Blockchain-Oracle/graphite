@@ -140,6 +140,7 @@ export function useAirdrops() {
         symbol: symbol as string || 'TOKEN',
         amount: 100, // Default amount per user - actual amount would come from contract
         logoUrl: '/trust-badges/tier-3.svg', // Default logo - actual logo would come from token metadata
+        tokenContractAddress: token as `0x${string}`,
         creatorName: 'Graphite User', // Default creator name
         creatorAddress: creatorInfo as string,
         startDate: new Date(Number(startTime) * 1000).toISOString(),
@@ -498,7 +499,7 @@ export function useCreateAirdrop() {
   const createAirdrop = async (
     // name: string, // Kept for potential off-chain use or UI, not passed to this specific contract call
     // symbol: string, // Kept for potential off-chain use or UI, not passed to this specific contract call
-    tokenAddress: `0x${string}`,
+    tokenContractAddress: `0x${string}`,
     merkleRoot: `0x${string}`, // bytes32
     requiredTrustScore: bigint,
     requiredKYCLevel: bigint,
@@ -508,7 +509,7 @@ export function useCreateAirdrop() {
   ) => {
     try {
       console.log("Calling createAirdrop with params:", {
-        tokenAddress,
+        tokenAddress: tokenContractAddress,
         merkleRoot,
         requiredTrustScore: requiredTrustScore.toString(),
         requiredKYCLevel: requiredKYCLevel.toString(),
@@ -519,8 +520,8 @@ export function useCreateAirdrop() {
         abi: getContractConfig('airdropFactory').abi,
         address: getContractConfig('airdropFactory').address,
         functionName: 'createAirdrop',
-        args: [ // These are the 6 arguments for the contract
-          tokenAddress,
+        args: [
+          tokenContractAddress,
           merkleRoot,
           requiredTrustScore,
           requiredKYCLevel,

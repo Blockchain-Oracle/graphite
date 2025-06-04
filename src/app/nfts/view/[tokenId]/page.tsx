@@ -13,19 +13,6 @@ import { Badge } from '@/components/ui/badge';
 import { Share2, ExternalLink } from 'lucide-react';
 import Image from 'next/image';
 
-// Remove NFTModelViewer dynamic import
-// const NFTModelViewer = dynamic(() => import('@/components/web3/nft-model-viewer'), {
-//   ssr: false,
-//   loading: () => (
-//     <div className="flex h-full w-full items-center justify-center bg-black/5">
-//       <div className="animate-pulse">
-//         <div className="h-24 w-24 bg-secondary/20 rounded-full"></div>
-//         <p className="mt-4 text-center text-sm text-muted-foreground">Loading 3D model...</p>
-//       </div>
-//     </div>
-//   )
-// });
-
 export default function ViewNFTPage() {
   const { tokenId } = useParams();
   const router = useRouter();

@@ -33,8 +33,8 @@ export async function GET(
     name: badgeName ? `Graphite Trust Badge #${tokenId}: ${badgeName}` : `Graphite Trust Badge #${tokenId}`,
     description: badgeMessage || 
       `This badge represents a trust score of ${trustScore}, placing the holder in the ${tierInfo.name} tier of the Graphite ecosystem.`,
-    image: `${process.env.NEXT_PUBLIC_BASE_URL || 'https://your-frontend-url.com'}/trust-badges/tier-${tierInfo.level}.svg`,
-    external_url: `${process.env.NEXT_PUBLIC_BASE_URL || 'https://your-frontend-url.com'}/nfts/view/${tokenId}`,
+    image: `${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/api/badge-images/${tokenId}`,
+    external_url: `${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/nfts/view/${tokenId}`,
     attributes: [
       {
         trait_type: "Trust Score",

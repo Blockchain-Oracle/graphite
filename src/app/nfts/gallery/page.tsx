@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useUserNFTs } from '@/lib/hooks/useNFTs';
 import dynamic from 'next/dynamic';
-import { NFTTier } from '@/lib/types';
+import { NFTTier, MOCK_NFTS } from '@/lib/types';
 import { SparklesText } from '@/components/magicui/sparkles-text';
 import { Particles } from '@/components/magicui/particles';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -56,14 +56,16 @@ export default function NFTGalleryPage() {
   
   const userAddress = address || MOCK_ADDRESS;
   
-  const { nfts: allNfts, isLoading: isLoadingAll, error: errorAll } = useUserNFTs(undefined);
+  // Fetch total supply for the gallery title, but we'll use MOCK_NFTS for the 'all' view display
+  const { isLoading: isLoadingTotalSupply, error: errorTotalSupply, totalSupplyOfNFTs } = useUserNFTs(undefined); 
   const { nfts: userNfts, isLoading: isLoadingOwned, error: errorOwned } = useUserNFTs(viewMode === 'owned' ? userAddress : undefined);
 
   // Determine current loading state and error based on viewMode
-  const isLoading = viewMode === 'owned' ? isLoadingOwned : isLoadingAll;
-  const error = viewMode === 'owned' ? errorOwned : errorAll;
+  const isLoading = viewMode === 'owned' ? isLoadingOwned : isLoadingTotalSupply; // isLoadingTotalSupply for 'all' mode primarily for title
+  const error = viewMode === 'owned' ? errorOwned : errorTotalSupply;
   
-  const displayNfts = viewMode === 'owned' ? userNfts : allNfts;
+  // Use MOCK_NFTS for 'all' view, and fetched userNfts for 'owned' view
+  const displayNfts = viewMode === 'owned' ? userNfts : MOCK_NFTS;
   
   useEffect(() => {
     const newParams = new URLSearchParams(searchParams?.toString());
@@ -118,8 +120,8 @@ export default function NFTGalleryPage() {
             </SparklesText>
             <p className="text-muted-foreground mt-2">
               {viewMode === 'owned' 
-                ? 'Explore your Trust Guardian NFTs' 
-                : 'Discover Trust Guardian NFTs from the community'}
+                ? `Explore your Trust Guardian NFTs` 
+                : `Discover ${totalSupplyOfNFTs > 0 ? `${totalSupplyOfNFTs} ` : ''}Trust Guardian NFTs from the community`}
             </p>
           </div>
           

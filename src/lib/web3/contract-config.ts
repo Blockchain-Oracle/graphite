@@ -11,7 +11,7 @@ import IGraphiteReputationABI from './abis/IGraphiteReputation.json';
 export const CONTRACT_ADDRESSES = {
   // Main Graphite contracts
   reputationEcosystem: process.env.NEXT_PUBLIC_REPUTATION_ECOSYSTEM_CONTRACT || '0xDefaultEcosystemAddress',
-  trustNFT: process.env.NEXT_PUBLIC_TRUST_NFT_CONTRACT || '0xDefaultTrustNFTAddress',
+  trustNFT: process.env.NEXT_PUBLIC_TRUST_NFT_CONTRACT || '0x4f0C27955880D3D5014eD90AC93871dc643d524F',
   trustScoreAdapter: process.env.NEXT_PUBLIC_TRUST_SCORE_ADAPTER_CONTRACT || '0xDefaultTrustScoreAdapterAddress',
   airdropFactory: process.env.NEXT_PUBLIC_AIRDROP_FACTORY_CONTRACT || '0xDefaultAirdropFactoryAddress',
   token: process.env.NEXT_PUBLIC_TOKEN_ADDRESS || '0xDefaultTokenAddress',

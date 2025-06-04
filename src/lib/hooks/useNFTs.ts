@@ -1,7 +1,7 @@
 import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt, usePublicClient } from 'wagmi';
 import { useState, useEffect } from 'react';
 import { getContractConfig, CONTRACT_ADDRESSES } from '../web3/contract-config';
-import { NFT, NFTTier, getTierFromTrustScore } from '../types';
+import { NFT, NFTTier, getTierFromTrustScore, MOCK_NFTS, NFTAttribute } from '../types';
 
 /**
  * Hook to get user's NFTs from the blockchain
@@ -12,6 +12,7 @@ export function useUserNFTs(address?: `0x${string}`) {
   const [nfts, setNfts] = useState<NFT[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
+  const [totalSupplyOfNFTs, setTotalSupplyOfNFTs] = useState<number>(0);
   const publicClient = usePublicClient();
 
   // Get the trust NFT contract config
@@ -29,6 +30,20 @@ export function useUserNFTs(address?: `0x${string}`) {
       enabled: !!userAddress,
     }
   });
+
+  const { data: fetchedTotalSupply, isLoading: isTotalSupplyLoading } = useReadContract({
+    ...trustNFTConfig,
+    functionName: 'totalSupply',
+    query: {
+      enabled: !address, // Only fetch total supply if no specific address is provided (i.e., fetching all NFTs)
+    }
+  });
+
+  useEffect(() => {
+    if (fetchedTotalSupply) {
+      setTotalSupplyOfNFTs(Number(fetchedTotalSupply));
+    }
+  }, [fetchedTotalSupply]);
 
   // Fetch user's NFTs
   useEffect(() => {
@@ -101,54 +116,85 @@ export function useUserNFTs(address?: `0x${string}`) {
     if (!publicClient) return null;
     
     try {
-      // Get trust score for this NFT
-      const trustScore = await publicClient.readContract({
-        ...trustNFTConfig,
-        functionName: 'trustScoreOf',
-        args: [tokenId],
-      });
+      const { abi: trustNFTAbi } = getContractConfig('trustNFT');
+      const { abi: ecosystemAbi } = getContractConfig('reputationEcosystem');
 
-      // Get URI for metadata
-      const tokenURI = await publicClient.readContract({
-        ...trustNFTConfig,
-        functionName: 'tokenURI',
-        args: [tokenId],
-      });
+      // Define a type for the structure returned by getBadgeData
+      type BadgeDataReturnType = [number, string, string, boolean];
 
-      // Get token owner
-      const owner = await publicClient.readContract({
-        ...trustNFTConfig,
-        functionName: 'ownerOf',
-        args: [tokenId],
-      });
+      const [tokenUri, owner, rawLastTrustScore, badgeDataResult] = await Promise.all([
+        publicClient.readContract({
+          address: CONTRACT_ADDRESSES.trustNFT as `0x${string}`,
+          abi: trustNFTAbi,
+          functionName: 'tokenURI',
+          args: [tokenId],
+        }),
+        publicClient.readContract({
+          address: CONTRACT_ADDRESSES.trustNFT as `0x${string}`,
+          abi: trustNFTAbi,
+          functionName: 'ownerOf',
+          args: [tokenId],
+        }),
+        publicClient.readContract({
+          address: CONTRACT_ADDRESSES.trustNFT as `0x${string}`,
+          abi: trustNFTAbi,
+          functionName: 'lastTrustScore',
+          args: [tokenId],
+        }),
+        publicClient.readContract({
+          address: CONTRACT_ADDRESSES.trustNFT as `0x${string}`,
+          abi: trustNFTAbi,
+          functionName: 'getBadgeData',
+          args: [tokenId],
+        }),
+      ]);
 
-      if (!trustScore || !tokenURI || !owner) return null;
+      const score = Number(rawLastTrustScore);
+      const tier = getTierFromScore(score);
+      const badgeData = badgeDataResult as BadgeDataReturnType | null;
 
-      const tier = getTierFromTrustScore(Number(trustScore));
-      
-      // For on-chain NFTs, we might need to fetch metadata from URI
-      // For simplicity, constructing basic metadata here
-      const nft: NFT = {
+      const nftName = badgeData && badgeData[1] ? badgeData[1] : `Graphite Trust NFT #${tokenId.toString()}`;
+      const nftDescription = badgeData && badgeData[2] ? badgeData[2] : `A unique Trust NFT for user ${owner}.`;
+      const numericId: number = Number(tokenId); // Explicitly convert to number
+
+      const attributes: NFTAttribute[] = [];
+      if (badgeData) {
+        attributes.push({ trait_type: 'Badge Type', value: badgeData[0] });
+        attributes.push({ trait_type: 'Badge Name', value: badgeData[1] });
+        attributes.push({ trait_type: 'Badge Message', value: badgeData[2] });
+        attributes.push({ trait_type: 'Verified Badge', value: badgeData[3] ? 'Yes' : 'No' });
+      }
+      // Add other relevant attributes if any
+
+      return {
         id: tokenId.toString(),
-        tokenId: Number(tokenId),
-        name: `Graphite Trust NFT #${tokenId}`,
-        description: `Trust NFT representing trust score ${trustScore}`,
-        image: `/trust-badges/tier-${tier}.svg`,
-        owner: owner as string,
-        trustScore: Number(trustScore),
+        tokenId: numericId,
+        name: nftName,
+        description: nftDescription,
+        image: `/api/badge-images/${tokenId.toString()}`,
+        owner: owner as `0x${string}`,
+        trustScore: score,
         tier,
-        createdAt: new Date().toISOString(), // Would get from contract in real implementation
-        attributes: [
-          { trait_type: 'Trust Score', value: Number(trustScore) },
-          { trait_type: 'Tier', value: tier },
-        ],
+        attributes,
+        // tokenUri: tokenUri as string, // Temporarily commented out
+        // Default or placeholder values for fields expected by the NFT interface
+        createdAt: new Date().toISOString(), // Placeholder, ideally fetch actual mint date
+        customizations: undefined, // Placeholder
       };
-
-      return nft;
-    } catch (err) {
-      console.error(`Error fetching NFT details for token ID ${tokenId}:`, err);
+    } catch (error) {
+      console.error(`Error fetching details for NFT ${tokenId}:`, error);
       return null;
     }
+  };
+
+  // Helper function to get tier name based on score (align with contract logic if possible)
+  // This should mirror the contract's getTierName/getTierLevel if precise alignment is needed
+  const getTierFromScore = (score: number): NFTTier => {
+    if (score < 200) return 'Basic' as NFTTier;
+    if (score < 400) return 'Moderate' as NFTTier;
+    if (score < 600) return 'Good' as NFTTier;
+    if (score < 800) return 'High' as NFTTier;
+    return 'Exceptional' as NFTTier;
   };
 
   // Filter and sort functions
@@ -192,6 +238,7 @@ export function useUserNFTs(address?: `0x${string}`) {
     filterByScore,
     sortByScore,
     sortByDate,
+    totalSupplyOfNFTs: address ? 0 : totalSupplyOfNFTs, // Only return total supply if no specific address
   };
 }
 
@@ -200,41 +247,96 @@ export function useUserNFTs(address?: `0x${string}`) {
  */
 export function useMintNFT() {
   const { address } = useAccount();
-  const { writeContractAsync, data: hash, isPending, isError, error } = useWriteContract();
+  const { writeContractAsync, data: hash, isPending, error } = useWriteContract();
   
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({
     hash,
   });
 
-  const trustNFTConfig = {
-    address: CONTRACT_ADDRESSES.trustNFT as `0x${string}`,
-    abi: getContractConfig('trustNFT').abi,
+  // Configuration for the GraphiteReputationEcosystem contract
+  const ecosystemContractConfig = {
+    address: CONTRACT_ADDRESSES.reputationEcosystem as `0x${string}`,
+    abi: getContractConfig('reputationEcosystem').abi,
   };
+
+  // Read the mintCost from the ecosystem contract
+  const { data: mintCost, isLoading: isMintCostLoading, error: mintCostError } = useReadContract({
+    ...ecosystemContractConfig,
+    functionName: 'mintCost',
+    query: {
+      enabled: !!address, // Only fetch if user is connected
+    }
+  });
 
   const mint = async () => {
     if (!address) throw new Error('Wallet not connected');
-    
+    if (isMintCostLoading) throw new Error('Mint cost is being loaded, please wait.');
+    if (mintCostError) throw new Error(`Failed to load mint cost: ${mintCostError.message}`);
+    if (mintCost === undefined || mintCost === null) throw new Error('Mint cost not available.');
+
     try {
-      return await writeContractAsync({
-        ...trustNFTConfig,
-        functionName: 'mint',
-        // args: [], // Assuming mint doesn't require arguments beyond the sender
+      const txHash = await writeContractAsync({
+        ...ecosystemContractConfig, // Use ecosystem contract config
+        functionName: 'mintNFT',    // Call the ecosystem's mintNFT function
+        // No args needed for ecosystem.mintNFT()
+        value: mintCost as bigint, // Send mintCost with the transaction
       });
-    } catch (err) {
-      console.error('Error minting NFT:', err);
-      throw err;
+      return txHash;
+    } catch (err: any) {
+      console.error('Error during writeContractAsync in useMintNFT:', err);
+      // Re-throw the error so the caller (and useWriteContract internal state) is aware.
+      // The useEffect below will handle parsing it into a user-friendly message.
+      throw err; 
     }
   };
 
   const isProcessing = isPending || isConfirming;
 
+  // We need a local state for the parsed error message
+  const [parsedError, setParsedError] = useState<string | null>(null);
+
+  // Effect to parse error from useWriteContract or mintCostError
+  useEffect(() => {
+    const rawError = error || mintCostError;
+    if (rawError) {
+      let specificMessage = 'An unknown error occurred.';
+      // Prefer shortMessage if available and a string, otherwise use message.
+      const messageSource = (typeof (rawError as any).shortMessage === 'string' ? (rawError as any).shortMessage : rawError.message) || '';
+
+      if (messageSource.includes('AccountNotActivated')) {
+        specificMessage = 'Account not activated. Please activate your account first.';
+      } else if (messageSource.includes('InsufficientKYCLevel')) {
+        specificMessage = 'Insufficient KYC level. Please complete the required KYC verification.';
+      } else if (messageSource.includes('InsufficientMintFee')) {
+        specificMessage = 'Insufficient fee sent for minting. Please ensure you have enough funds.';
+      } else if (messageSource.includes('MintingDisabled')) {
+        specificMessage = 'Minting is currently disabled by the administrator.';
+      } else if (rawError.message && rawError.message.includes('Mint cost not available')) {
+        specificMessage = 'Mint cost is not available. Please try again shortly.';
+      } else if (rawError.message && rawError.message.includes('Failed to load mint cost')) {
+        specificMessage = 'Could not load mint cost. Please check your connection or try again.';
+      } else {
+        // Fallback for other viem/contract errors
+        specificMessage = messageSource.length > 150 ? 'A contract error occurred. Please try again.' : messageSource;
+        if (!specificMessage) { // Ensure there's always some message
+            specificMessage = 'An unexpected error occurred during the transaction.';
+        }
+      }
+      setParsedError(specificMessage);
+    } else {
+      setParsedError(null);
+    }
+  }, [error, mintCostError]);
+
   return {
     mint,
     isProcessing,
     isSuccess,
-    isError,
-    error,
+    isError: !!parsedError, // isError is true if parsedError is not null
+    error: parsedError,     // Return the parsed, user-friendly error message
     hash,
+    mintCost: mintCost as bigint | undefined,
+    isMintCostLoading,
   };
 }
 
@@ -245,136 +347,44 @@ export function useNFTDetails(tokenId: number | null) {
   const [nft, setNft] = useState<NFT | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
-  const publicClient = usePublicClient();
-  const { writeContractAsync } = useWriteContract();
+  // const publicClient = usePublicClient(); // No longer needed if no blockchain calls
 
-  const trustNFTConfig = {
-    address: CONTRACT_ADDRESSES.trustNFT as `0x${string}`,
-    abi: getContractConfig('trustNFT').abi,
-  };
+  // const trustNFTConfig = { // No longer needed
+  //   address: CONTRACT_ADDRESSES.trustNFT as `0x${string}`,
+  //   abi: getContractConfig('trustNFT').abi,
+  // };
 
   useEffect(() => {
-    const fetchNFT = async () => {
-      if (!tokenId || !publicClient) return;
-      
-      try {
-        setIsLoading(true);
-        setError(null);
-
-        // Get trust score for this NFT
-        const trustScore = await publicClient.readContract({
-          ...trustNFTConfig,
-          functionName: 'trustScoreOf',
-          args: [BigInt(tokenId)],
-        });
-
-        // Get URI for metadata
-        const tokenURI = await publicClient.readContract({
-          ...trustNFTConfig,
-          functionName: 'tokenURI',
-          args: [BigInt(tokenId)],
-        });
-
-        // Get token owner
-        const owner = await publicClient.readContract({
-          ...trustNFTConfig,
-          functionName: 'ownerOf',
-          args: [BigInt(tokenId)],
-        });
-
-        if (!trustScore || !tokenURI || !owner) {
-          setError(new Error('Failed to fetch NFT data'));
-          return;
-        }
-
-        const tier = getTierFromTrustScore(Number(trustScore));
-        
-        // For on-chain NFTs, we might need to fetch metadata from URI
-        // For simplicity, constructing basic metadata here
-        const nftData: NFT = {
-          id: tokenId.toString(),
-          tokenId: tokenId,
-          name: `Graphite Trust NFT #${tokenId}`,
-          description: `Trust NFT representing trust score ${trustScore}`,
-          image: `/trust-badges/tier-${tier}.svg`,
-          owner: owner as string,
-          trustScore: Number(trustScore),
-          tier,
-          createdAt: new Date().toISOString(), // Would get from contract in real implementation
-          attributes: [
-            { trait_type: 'Trust Score', value: Number(trustScore) },
-            { trait_type: 'Tier', value: tier },
-          ],
-        };
-
-        setNft(nftData);
-      } catch (err) {
-        console.error(`Error fetching NFT details for token ID ${tokenId}:`, err);
-        setError(err instanceof Error ? err : new Error('Failed to fetch NFT details'));
-      } finally {
+    const fetchNFTFromMock = () => {
+      if (tokenId === null || tokenId === undefined || isNaN(tokenId)) {
+        setNft(null);
         setIsLoading(false);
+        if (tokenId !== null && tokenId !== undefined) setError(new Error('Invalid Token ID'));
+        return;
       }
+      
+      setIsLoading(true);
+      setError(null);
+
+      // Find NFT from MOCK_NFTS
+      const mockNFTData = MOCK_NFTS.find(n => n.tokenId === tokenId);
+
+      if (!mockNFTData) {
+        setError(new Error(`NFT with Token ID ${tokenId} not found in mock data.`));
+        setNft(null);
+      } else {
+        setNft(mockNFTData); // Use mock data directly, including owner
+      }
+      setIsLoading(false);
     };
 
-    fetchNFT();
-  }, [tokenId, publicClient]);
-
-  /**
-   * Refresh the NFT's trust score from the blockchain
-   */
-  const refreshTrustScore = async () => {
-    if (!tokenId || !publicClient) return;
-    
-    try {
-      setIsLoading(true);
-      
-      // Request trust score update
-      await writeContractAsync({
-        ...trustNFTConfig,
-        functionName: 'refreshTrustScore',
-        args: [BigInt(tokenId)],
-      });
-      
-      // Refetch NFT details after a short delay
-      setTimeout(async () => {
-        try {
-          const newTrustScore = await publicClient.readContract({
-            ...trustNFTConfig,
-            functionName: 'trustScoreOf',
-            args: [BigInt(tokenId)],
-          });
-          
-          if (newTrustScore && nft) {
-            const newTier = getTierFromTrustScore(Number(newTrustScore));
-            setNft({
-              ...nft,
-              trustScore: Number(newTrustScore),
-              tier: newTier,
-              attributes: [
-                { trait_type: 'Trust Score', value: Number(newTrustScore) },
-                { trait_type: 'Tier', value: newTier },
-              ],
-            });
-          }
-        } catch (err) {
-          console.error('Error fetching updated trust score:', err);
-        } finally {
-          setIsLoading(false);
-        }
-      }, 2000); // Wait for blockchain update to propagate
-      
-    } catch (err) {
-      console.error('Error refreshing trust score:', err);
-      setError(err instanceof Error ? err : new Error('Failed to refresh trust score'));
-      setIsLoading(false);
-    }
-  };
+    fetchNFTFromMock();
+  }, [tokenId]);
 
   return {
     nft,
     isLoading,
     error,
-    refreshTrustScore,
   };
 }
 

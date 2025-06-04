@@ -24,6 +24,7 @@ import { GlassmorphismCard } from "@/components/ui/glassmorphism-card";
 import { AnimatedList } from "@/components/magicui/animated-list";
 import { Particles } from "@/components/magicui/particles";
 import { AirdropData } from "@/components/web3/airdrop-card";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 // Mock data for created airdrops
 const MOCK_MY_AIRDROPS: (AirdropData & { 
@@ -37,6 +38,7 @@ const MOCK_MY_AIRDROPS: (AirdropData & {
     symbol: "GRT",
     amount: 100,
     logoUrl: "https://picsum.photos/200/200",
+    tokenContractAddress: "0xda468E6409F715d61c44DD53A75e58ea5265eA50",
     creatorName: "Me",
     creatorAddress: "0x1234...5678",
     startDate: "2023-10-01T00:00:00Z",
@@ -56,6 +58,7 @@ const MOCK_MY_AIRDROPS: (AirdropData & {
     symbol: "TECH",
     amount: 200,
     logoUrl: "https://picsum.photos/200/200?random=4",
+    tokenContractAddress: "0x4f0C27955880D3D5014eD90AC93871dc643d524F",
     creatorName: "Me",
     creatorAddress: "0x1234...5678",
     startDate: "2023-11-01T00:00:00Z",
@@ -75,6 +78,7 @@ const MOCK_MY_AIRDROPS: (AirdropData & {
     symbol: "GAME",
     amount: 500,
     logoUrl: "https://picsum.photos/200/200?random=5",
+    tokenContractAddress: "0x98AD158893AE8d0f73fbfDB1E6dA616D5fB1Fb19",
     creatorName: "Me",
     creatorAddress: "0x1234...5678",
     startDate: "2023-08-01T00:00:00Z",
@@ -94,6 +98,7 @@ const MOCK_MY_AIRDROPS: (AirdropData & {
     symbol: "ART",
     amount: 1,
     logoUrl: "https://picsum.photos/200/200?random=6",
+    tokenContractAddress: "0x306000D966A28CA768E2a3b84b63a7BCf4Cca58A",
     creatorName: "Me",
     creatorAddress: "0x1234...5678",
     startDate: "2023-09-01T00:00:00Z",
@@ -379,11 +384,10 @@ export default function ManageAirdrops() {
                         <td className="p-4">
                           <div className="flex items-center">
                             <div className="mr-3 h-8 w-8 overflow-hidden rounded-full">
-                              <img
-                                src={airdrop.logoUrl}
-                                alt={airdrop.name}
-                                className="h-full w-full object-cover"
-                              />
+                              <Avatar className="h-8 w-8">
+                                <AvatarImage src={`https://effigy.im/a/${airdrop.tokenContractAddress}.svg`} alt={`${airdrop.name} logo`} />
+                                <AvatarFallback className="bg-neutral-700 text-neutral-300">{airdrop.symbol ? airdrop.symbol.substring(0, 2).toUpperCase() : '??'}</AvatarFallback>
+                              </Avatar>
                             </div>
                             <div>
                               <div className="font-medium text-white">{airdrop.name}</div>
@@ -533,11 +537,10 @@ export default function ManageAirdrops() {
                       <>
                         <div className="flex flex-col items-center">
                           <div className="mb-3 h-16 w-16 overflow-hidden rounded-full">
-                            <img
-                              src={airdrop.logoUrl}
-                              alt={airdrop.name}
-                              className="h-full w-full object-cover"
-                            />
+                            <Avatar className="h-16 w-16">
+                              <AvatarImage src={`https://effigy.im/a/${airdrop.tokenContractAddress}.svg`} alt={`${airdrop.name} logo`} />
+                              <AvatarFallback className="bg-neutral-700 text-neutral-300">{airdrop.symbol ? airdrop.symbol.substring(0, 2).toUpperCase() : '??'}</AvatarFallback>
+                            </Avatar>
                           </div>
                           <h4 className="mb-1 text-xl font-bold text-white">{airdrop.name}</h4>
                           <p className="text-gray-400">{airdrop.symbol} • {airdrop.type}</p>
