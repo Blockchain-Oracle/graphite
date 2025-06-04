@@ -1,7 +1,7 @@
 # Graphite: Web3 Reputation & Trust Ecosystem
 
 <div align="center">
-  <img src="public/trust-badges/tier-5.svg" alt="Graphite Logo" width="150" />
+  <img src="https://raw.githubusercontent.com/Blockchain-Oracle/graphite/main/public/trust-badges/tier-5.svg" alt="Graphite Logo" width="150" />
   <h3>Building Trust in Web3, One Score at a Time</h3>
   
   [![Next.js](https://img.shields.io/badge/Next.js-15-black?style=for-the-badge&logo=next.js)](https://nextjs.org/)
@@ -49,11 +49,11 @@ Graphite's core is the Trust Score—a numerical value between 0-1000 that repre
 
 | Tier | Score Range | Badge | Features |
 |------|-------------|-------|----------|
-| **Authority** | 801-1000 | <img src="public/trust-badges/tier-5.svg" alt="Authority" width="30" /> | Full governance rights, platform endorsement abilities |
-| **Influencer** | 601-800 | <img src="public/trust-badges/tier-4.svg" alt="Influencer" width="30" /> | Ability to vouch for others, high-value airdrop access |
-| **Trusted** | 401-600 | <img src="public/trust-badges/tier-3.svg" alt="Trusted" width="30" /> | Priority access across integrated platforms |
-| **Established** | 201-400 | <img src="public/trust-badges/tier-2.svg" alt="Established" width="30" /> | Access to exclusive airdrops |
-| **Newcomer** | 0-200 | <img src="public/trust-badges/tier-1.svg" alt="Newcomer" width="30" /> | Basic ecosystem access |
+| **Authority** | 801-1000 | <img src="https://raw.githubusercontent.com/Blockchain-Oracle/graphite/main/public/trust-badges/tier-5.svg" alt="Authority" width="30" /> | Full governance rights, platform endorsement abilities |
+| **Influencer** | 601-800 | <img src="https://raw.githubusercontent.com/Blockchain-Oracle/graphite/main/public/trust-badges/tier-4.svg" alt="Influencer" width="30" /> | Ability to vouch for others, high-value airdrop access |
+| **Trusted** | 401-600 | <img src="https://raw.githubusercontent.com/Blockchain-Oracle/graphite/main/public/trust-badges/tier-3.svg" alt="Trusted" width="30" /> | Priority access across integrated platforms |
+| **Established** | 201-400 | <img src="https://raw.githubusercontent.com/Blockchain-Oracle/graphite/main/public/trust-badges/tier-2.svg" alt="Established" width="30" /> | Access to exclusive airdrops |
+| **Newcomer** | 0-200 | <img src="https://raw.githubusercontent.com/Blockchain-Oracle/graphite/main/public/trust-badges/tier-1.svg" alt="Newcomer" width="30" /> | Basic ecosystem access |
 
 ### Sybil-Resistant Airdrops
 

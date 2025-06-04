@@ -66,36 +66,38 @@ export function useAirdrops() {
 
   const fetchAirdropAtIndex = async (index: number, publicClient: PublicClient): Promise<AirdropData | null> => {
     try {
-      // Get airdrop address and metadata from factory
+      const erc20MinimalAbiForAirdrops = [
+        {
+          "constant": true,
+          "inputs": [],
+          "name": "name",
+          "outputs": [{ "name": "", "type": "string" }],
+          "type": "function"
+        },
+        {
+          "constant": true,
+          "inputs": [],
+          "name": "symbol",
+          "outputs": [{ "name": "", "type": "string" }],
+          "type": "function"
+        }
+      ];
+
+      // Get airdrop address from factory
       const airdropAddress = await publicClient.readContract({
         ...getContractConfig('airdropFactory'),
         functionName: 'airdrops',
         args: [BigInt(index)],
       }) as `0x${string}`;
 
-      if (!airdropAddress) return null;
+      if (!airdropAddress || airdropAddress === '0x0000000000000000000000000000000000000000') return null;
 
-      // Get airdrop details from the SybilResistantAirdrop contract
-      const [token, name, symbol, totalTokens, startTime, endTime, claimedCount] = await Promise.all([
+      // Get core airdrop details from the SybilResistantAirdrop contract
+      const [tokenContractAddress, contractStartTime, contractEndTime] = await Promise.all([
         publicClient.readContract({
           address: airdropAddress,
           abi: getContractConfig('sybilResistantAirdrop').abi,
-          functionName: 'token',
-        }),
-        publicClient.readContract({
-          address: airdropAddress,
-          abi: getContractConfig('sybilResistantAirdrop').abi,
-          functionName: 'name',
-        }),
-        publicClient.readContract({
-          address: airdropAddress,
-          abi: getContractConfig('sybilResistantAirdrop').abi,
-          functionName: 'symbol',
-        }),
-        publicClient.readContract({
-          address: airdropAddress,
-          abi: getContractConfig('sybilResistantAirdrop').abi,
-          functionName: 'totalTokens',
+          functionName: 'token', // Address of the ERC20 token
         }),
         publicClient.readContract({
           address: airdropAddress,
@@ -107,48 +109,66 @@ export function useAirdrops() {
           abi: getContractConfig('sybilResistantAirdrop').abi,
           functionName: 'endTime',
         }),
-        publicClient.readContract({
-          address: airdropAddress,
-          abi: getContractConfig('sybilResistantAirdrop').abi,
-          functionName: 'claimedCount',
-        }),
       ]);
 
+      // Fetch ERC20 token details (name and symbol)
+      let tokenName: string = `Airdrop Token ${index + 1}`;
+      let tokenSymbol: string = 'TKN';
+      try {
+        const [fetchedTokenName, fetchedTokenSymbol] = await Promise.all([
+          publicClient.readContract({
+            address: tokenContractAddress as `0x${string}`,
+            abi: erc20MinimalAbiForAirdrops,
+            functionName: 'name',
+          }),
+          publicClient.readContract({
+            address: tokenContractAddress as `0x${string}`,
+            abi: erc20MinimalAbiForAirdrops,
+            functionName: 'symbol',
+          }),
+        ]);
+        tokenName = fetchedTokenName as string || tokenName;
+        tokenSymbol = fetchedTokenSymbol as string || tokenSymbol;
+      } catch (tokenError) {
+        console.warn(`Error fetching ERC20 metadata for token ${tokenContractAddress} in airdrop ${airdropAddress}:`, tokenError);
+        // Keep default names if metadata fetch fails
+      }
+      
+
       // Get airdrop creator info from factory
-      const creatorInfo = await publicClient.readContract({
+      const creatorAddress = await publicClient.readContract({
         ...getContractConfig('airdropFactory'),
-        functionName: 'getAirdropCreator',
+        functionName: 'airdropCreators', // Corrected function name
         args: [airdropAddress],
-      });
+      }) as `0x${string}`;
 
       // Determine airdrop status
       const now = Math.floor(Date.now() / 1000);
       let status: 'upcoming' | 'active' | 'expired' | 'completed' = 'active';
       
-      if (Number(startTime) > now) {
+      if (Number(contractStartTime) > now) {
         status = 'upcoming';
-      } else if (Number(endTime) < now) {
-        status = 'expired';
-      } else if (Number(claimedCount) >= Number(totalTokens)) {
-        status = 'completed';
+      } else if (Number(contractEndTime) < now) {
+        status = 'expired'; 
       }
+      // Note: 'completed' status based on claimedCount/totalTokens is removed as these are not directly on the airdrop contract.
 
       // Create AirdropData object
       return {
         id: airdropAddress,
-        name: name as string || `Airdrop ${index + 1}`,
-        symbol: symbol as string || 'TOKEN',
-        amount: 100, // Default amount per user - actual amount would come from contract
-        logoUrl: '/trust-badges/tier-3.svg', // Default logo - actual logo would come from token metadata
-        tokenContractAddress: token as `0x${string}`,
-        creatorName: 'Graphite User', // Default creator name
-        creatorAddress: creatorInfo as string,
-        startDate: new Date(Number(startTime) * 1000).toISOString(),
-        endDate: new Date(Number(endTime) * 1000).toISOString(),
-        claimers: Number(claimedCount),
-        totalTokens: Number(totalTokens),
-        description: `${name} airdrop by Graphite`,
-        type: 'ERC20', // Default type - actual type would be determined by token contract
+        name: tokenName,
+        symbol: tokenSymbol,
+        amount: 100, // Default amount per user - actual amount would come from Merkle tree data per user
+        logoUrl: '/trust-badges/tier-3.svg', // Default logo - actual logo could come from token metadata service
+        tokenContractAddress: tokenContractAddress as `0x${string}`,
+        creatorName: `User ${creatorAddress.slice(0,6)}...`, // Placeholder, could use ENS lookup
+        creatorAddress: creatorAddress,
+        startDate: new Date(Number(contractStartTime) * 1000).toISOString(),
+        endDate: new Date(Number(contractEndTime) * 1000).toISOString(),
+        claimers: 0, // Placeholder, as SybilResistantAirdrop doesn't expose a simple claimedCount
+        totalTokens: 0, // Placeholder, as SybilResistantAirdrop doesn't expose totalTokens for airdrop
+        description: `${tokenName} airdrop by ${creatorAddress.slice(0,6)}...`,
+        type: 'ERC20',
         status,
       };
     } catch (error) {
