@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useUserNFTs } from '@/lib/hooks/useNFTs';
 import dynamic from 'next/dynamic';
 import { NFTTier, MOCK_NFTS } from '@/lib/types';
@@ -9,6 +9,7 @@ import { Particles } from '@/components/magicui/particles';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAccount } from 'wagmi';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { GalleryContent } from './gallery-content';
 
 // Import NFTCard dynamically with SSR disabled
 const NFTCard = dynamic(() => import('@/components/web3/nft-card').then(mod => ({ default: mod.NFTCard })), {
@@ -44,169 +45,40 @@ const SORT_OPTIONS = [
   { label: 'Score (Low to High)', value: 'score-asc' },
 ];
 
+// Basic loading component for Suspense fallback
+function GalleryLoadingFallback() {
+  return (
+    <div className="flex justify-center items-center h-screen">
+      <div className="animate-pulse text-center">
+        <div className="h-16 w-16 bg-secondary/50 rounded-full mx-auto"></div>
+        <p className="mt-4 text-white">Loading Gallery...</p>
+      </div>
+    </div>
+  );
+}
+
 export default function NFTGalleryPage() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const filterParam = searchParams?.get('filter');
-  const { address } = useAccount();
-  
-  const [selectedTier, setSelectedTier] = useState<NFTTier | null>(null);
-  const [sortOption, setSortOption] = useState(SORT_OPTIONS[0].value);
-  const [viewMode, setViewMode] = useState<'all' | 'owned'>(filterParam === 'owned' ? 'owned' : 'all');
-  
-  const userAddress = address || MOCK_ADDRESS;
-  
-  // Fetch total supply for the gallery title, but we'll use MOCK_NFTS for the 'all' view display
-  const { isLoading: isLoadingTotalSupply, error: errorTotalSupply, totalSupplyOfNFTs } = useUserNFTs(undefined); 
-  const { nfts: userNfts, isLoading: isLoadingOwned, error: errorOwned } = useUserNFTs(viewMode === 'owned' ? userAddress : undefined);
-
-  // Determine current loading state and error based on viewMode
-  const isLoading = viewMode === 'owned' ? isLoadingOwned : isLoadingTotalSupply; // isLoadingTotalSupply for 'all' mode primarily for title
-  const error = viewMode === 'owned' ? errorOwned : errorTotalSupply;
-  
-  // Use MOCK_NFTS for 'all' view, and fetched userNfts for 'owned' view
-  const displayNfts = viewMode === 'owned' ? userNfts : MOCK_NFTS;
-  
-  useEffect(() => {
-    const newParams = new URLSearchParams(searchParams?.toString());
-    if (viewMode === 'owned') {
-      newParams.set('filter', 'owned');
-    } else {
-      newParams.delete('filter');
-    }
-    const newUrl = `/nfts/gallery${newParams.toString() ? `?${newParams.toString()}` : ''}`;
-    router.replace(newUrl, { scroll: false });
-    // Intentionally not re-fetching when only filterParam changes, viewMode controls data source
-  }, [viewMode, router, searchParams]);
-  
-  const filteredNFTs = selectedTier 
-    ? displayNfts.filter(nft => nft.tier === selectedTier) 
-    : displayNfts;
-  
-  const sortedNFTs = [...filteredNFTs].sort((a, b) => {
-    switch (sortOption) {
-      case 'newest':
-        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-      case 'oldest':
-        return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
-      case 'score-desc':
-        return b.trustScore - a.trustScore;
-      case 'score-asc':
-        return a.trustScore - b.trustScore;
-      default:
-        return 0;
-    }
-  });
-
   return (
     <div className="container mx-auto px-4 py-8">
       <div className="relative overflow-hidden">
-        {/* Background particles */}
-        <div className="absolute inset-0 pointer-events-none">
+        {/* Background particles - kept in the page layout */}
+        <div className="absolute inset-0 pointer-events-none -z-10">
           <Particles
             className="absolute inset-0"
-            quantity={300}
-            color="#888"
-            vy={-0.1}
+            quantity={300} // Reduced quantity for potentially better performance
+            color="#555" // Darker color for less distraction
+            vy={-0.05} // Slower movement
+            vx={0}      // No horizontal movement initially
+            staticity={20}
+            ease={30}
+            refresh={true}
           />
         </div>
         
         <div className="relative z-10">
-          <div className="mb-8 text-center">
-            <SparklesText
-              className="text-4xl sm:text-5xl font-bold"
-            >
-              {viewMode === 'owned' ? 'My Collection' : 'NFT Gallery'}
-            </SparklesText>
-            <p className="text-muted-foreground mt-2">
-              {viewMode === 'owned' 
-                ? `Explore your Trust Guardian NFTs` 
-                : `Discover ${totalSupplyOfNFTs > 0 ? `${totalSupplyOfNFTs} ` : ''}Trust Guardian NFTs from the community`}
-            </p>
-          </div>
-          
-          <div className="mb-6">
-            <Tabs defaultValue={viewMode} className="w-full" onValueChange={(value) => setViewMode(value as 'all' | 'owned')}>
-              <TabsList className="grid w-full max-w-md mx-auto grid-cols-2">
-                <TabsTrigger value="all">All NFTs</TabsTrigger>
-                <TabsTrigger value="owned">My Collection</TabsTrigger>
-              </TabsList>
-            </Tabs>
-          </div>
-          
-          <div className="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
-            <div className="flex flex-wrap gap-2">
-              {TIER_FILTERS.map((filter) => (
-                <button
-                  key={filter.label}
-                  className={`px-4 py-2 rounded-full text-sm ${
-                    selectedTier === filter.value
-                      ? 'bg-primary text-primary-foreground'
-                      : 'bg-secondary/50 hover:bg-secondary/80'
-                  }`}
-                  onClick={() => setSelectedTier(filter.value)}
-                >
-                  {filter.label}
-                </button>
-              ))}
-            </div>
-            
-            <div className="flex items-center">
-              <label htmlFor="sort" className="mr-2 text-sm">
-                Sort by:
-              </label>
-              <select
-                id="sort"
-                value={sortOption}
-                onChange={(e) => setSortOption(e.target.value)}
-                className="px-3 py-2 rounded-md bg-secondary/50 text-sm"
-              >
-                {SORT_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-          
-          {isLoading ? (
-            <div className="flex justify-center items-center h-64">
-              <div className="animate-pulse text-center">
-                <div className="h-16 w-16 bg-secondary/50 rounded-full mx-auto"></div>
-                <p className="mt-4">Loading NFTs...</p>
-              </div>
-            </div>
-          ) : error ? (
-            <div className="bg-destructive/10 border border-destructive text-destructive p-4 rounded-md">
-              <p>Error loading NFTs: {error.message}</p>
-            </div>
-          ) : sortedNFTs.length === 0 ? (
-            <div className="text-center py-16">
-              <h3 className="text-xl font-bold mb-2">
-                {viewMode === 'owned' ? 'No NFTs Found in Your Collection' : 'No NFTs Found'}
-              </h3>
-              <p className="text-muted-foreground mb-8">
-                {viewMode === 'owned' 
-                  ? "You don't have any NFTs yet. Mint one to get started!"
-                  : "No NFTs match your filter criteria."}
-              </p>
-              {viewMode === 'owned' && (
-                <a
-                  href="/nfts/mint"
-                  className="inline-block px-6 py-3 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors"
-                >
-                  Mint Your First NFT
-                </a>
-              )}
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-              {sortedNFTs.map((nft) => (
-                <NFTCard key={nft.id} nft={nft} />
-              ))}
-            </div>
-          )}
+          <Suspense fallback={<GalleryLoadingFallback />}>
+            <GalleryContent />
+          </Suspense>
         </div>
       </div>
     </div>
