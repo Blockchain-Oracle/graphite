@@ -40,7 +40,7 @@ export default function AirdropExplorer() {
       setAllAirdropsData(rawAirdrops);
       const activeAirdrops = rawAirdrops.filter(a => a.status === 'active');
       setFeaturedAirdrops(activeAirdrops.slice(0, Math.min(5, activeAirdrops.length)));
-    }
+      }
   }, [rawAirdrops]);
 
   const filteredAirdrops = allAirdropsData.filter(airdrop => {

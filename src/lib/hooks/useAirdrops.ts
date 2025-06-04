@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useAccount, useConfig } from 'wagmi';
 import { 
   useReadContract, 
@@ -555,89 +555,117 @@ export function useCreateAirdrop() {
  */
 export function useUserAirdrops() {
   const { address } = useAccount();
-  const { airdrops, isLoading, error } = useAirdrops();
+  const { 
+    airdrops: initialAirdrops, // Renamed for clarity
+    isLoading: isLoadingInitialAirdrops, 
+    error: initialAirdropsError 
+  } = useAirdrops(); 
   
-  // Airdrops created by the user
-  const createdAirdrops = airdrops.filter(
-    airdrop => airdrop.creatorAddress.toLowerCase() === (address?.toLowerCase() || '')
-  );
-
-  // Check eligibility for all airdrops (this would need to be optimized in a real app)
   const [eligibilityMap, setEligibilityMap] = useState<Record<string, { isEligible: boolean, hasClaimed: boolean }>>({});
+  const [isLoadingEligibility, setIsLoadingEligibility] = useState(true);
+  const [eligibilityError, setEligibilityError] = useState<Error | null>(null);
   const config = useConfig();
   
   useEffect(() => {
     const checkEligibilityForAllAirdrops = async () => {
-      if (!address || airdrops.length === 0) return;
-      
-      const publicClient = getPublicClient(config);
-      if (!publicClient) return;
-      
-      const eligibilityResults: Record<string, { isEligible: boolean, hasClaimed: boolean }> = {};
-      
-      for (const airdrop of airdrops) {
-        try {
-          const airdropAddress = airdrop.id as `0x${string}`;
-          
-          // Check if user is eligible
-          const isEligible = await publicClient.readContract({
-            address: airdropAddress,
-            abi: getContractConfig('sybilResistantAirdrop').abi,
-            functionName: 'isEligible',
-            args: [address],
-          });
-          
-          // Check if user has claimed
-          const hasClaimed = await publicClient.readContract({
-            address: airdropAddress,
-            abi: getContractConfig('sybilResistantAirdrop').abi,
-            functionName: 'hasClaimed',
-            args: [address],
-          });
-          
-          eligibilityResults[airdrop.id] = {
-            isEligible: !!isEligible,
-            hasClaimed: !!hasClaimed
-          };
-        } catch (error) {
-          console.error(`Error checking eligibility for airdrop ${airdrop.id}:`, error);
-          eligibilityResults[airdrop.id] = {
-            isEligible: false,
-            hasClaimed: false
-          };
-        }
+      // Ensure address and initialAirdrops are present and initialAirdrops has items
+      if (!address || !initialAirdrops || initialAirdrops.length === 0) {
+        setEligibilityMap({}); // Clear map if not applicable
+        setIsLoadingEligibility(false);
+        return;
       }
       
-      setEligibilityMap(eligibilityResults);
+      setIsLoadingEligibility(true);
+      setEligibilityError(null);
+      const publicClient = getPublicClient(config);
+
+      if (!publicClient) {
+        setEligibilityError(new Error('Failed to get public client for eligibility check.'));
+        setIsLoadingEligibility(false);
+        return;
+      }
+      
+      const newEligibilityMap: Record<string, { isEligible: boolean, hasClaimed: boolean }> = {};
+      
+      try {
+        for (const airdrop of initialAirdrops) {
+          try {
+            const airdropAddress = airdrop.id as `0x${string}`;
+            
+            const isEligiblePromise = publicClient.readContract({
+              address: airdropAddress,
+              abi: getContractConfig('sybilResistantAirdrop').abi,
+              functionName: 'isEligible',
+              args: [address],
+            });
+            
+            const hasClaimedPromise = publicClient.readContract({
+              address: airdropAddress,
+              abi: getContractConfig('sybilResistantAirdrop').abi,
+              functionName: 'hasClaimed',
+              args: [address],
+            });
+
+            const [isEligibleResult, hasClaimedResult] = await Promise.all([isEligiblePromise, hasClaimedPromise]);
+            
+            newEligibilityMap[airdrop.id] = {
+              isEligible: !!isEligibleResult,
+              hasClaimed: !!hasClaimedResult
+            };
+          } catch (error) {
+            console.error(`Error checking eligibility for airdrop ${airdrop.id}:`, error);
+            // Set default/error state for this specific airdrop in the map
+            newEligibilityMap[airdrop.id] = {
+              isEligible: false,
+              hasClaimed: false
+            };
+          }
+        }
+        setEligibilityMap(newEligibilityMap);
+      } catch (error) {
+        // This catch is for errors in the overall process, like Promise.all failing if not handled per-item
+        console.error(`Error during bulk eligibility check:`, error);
+        setEligibilityError(error instanceof Error ? error : new Error('Failed to check eligibility for all airdrops.'));
+      } finally {
+        setIsLoadingEligibility(false);
+      }
     };
     
     checkEligibilityForAllAirdrops();
-  }, [address, airdrops, config]);
+  }, [address, initialAirdrops, config]); // initialAirdrops is from useAirdrops
 
-  // Combine airdrops with eligibility info
-  const enhancedAirdrops = airdrops.map(airdrop => ({
-    ...airdrop,
-    isEligible: eligibilityMap[airdrop.id]?.isEligible || false,
-    hasClaimed: eligibilityMap[airdrop.id]?.hasClaimed || false
-  }));
+  // Combine airdrops with eligibility info using useMemo
+  const enhancedAirdrops = useMemo(() => {
+    if (!initialAirdrops) return []; // Handle case where initialAirdrops might be undefined briefly
+    return initialAirdrops.map(airdrop => ({
+      ...airdrop,
+      isEligible: eligibilityMap[airdrop.id]?.isEligible || false,
+      hasClaimed: eligibilityMap[airdrop.id]?.hasClaimed || false
+    }));
+  }, [initialAirdrops, eligibilityMap]);
 
-  // Filter eligible airdrops
-  const eligibleAirdrops = enhancedAirdrops.filter(
+  // Filter eligible airdrops using useMemo
+  const eligibleAirdrops = useMemo(() => enhancedAirdrops.filter(
     airdrop => airdrop.isEligible && !airdrop.hasClaimed && airdrop.status === 'active'
-  );
+  ), [enhancedAirdrops]);
 
-  // Filter claimed airdrops
-  const claimedAirdrops = enhancedAirdrops.filter(
+  // Filter claimed airdrops using useMemo
+  const claimedAirdrops = useMemo(() => enhancedAirdrops.filter(
     airdrop => airdrop.hasClaimed
-  );
+  ), [enhancedAirdrops]);
+  
+  // Airdrops created by the user using useMemo
+  const createdAirdrops = useMemo(() => enhancedAirdrops.filter(
+    airdrop => airdrop.creatorAddress.toLowerCase() === (address?.toLowerCase() || '')
+  ), [enhancedAirdrops, address]);
 
   return {
     allAirdrops: enhancedAirdrops,
     createdAirdrops,
     eligibleAirdrops,
     claimedAirdrops,
-    isLoading,
-    error
+    isLoading: isLoadingInitialAirdrops || isLoadingEligibility, // Combined loading state
+    error: initialAirdropsError || eligibilityError // Combined error state
   };
 }
 
