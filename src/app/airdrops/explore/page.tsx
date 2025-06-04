@@ -8,166 +8,8 @@ import { GlassmorphismCard } from "@/components/ui/glassmorphism-card";
 import { Marquee } from "@/components/magicui/marquee";
 import { Particles } from "@/components/magicui/particles";
 import { Confetti } from "@/components/magicui/confetti";
-
-// Mock data for airdrops
-const MOCK_FEATURED_AIRDROPS: AirdropData[] = [
-  {
-    id: "1",
-    name: "Graphite Token",
-    symbol: "GRT",
-    amount: 100,
-    logoUrl: "https://picsum.photos/200/200",
-    tokenContractAddress: "0x4a2e9F1B6C8D0E7F3A1c9B5d8E6f7A0b3C2d1E0F",
-    creatorName: "Graphite Team",
-    creatorAddress: "0x1234...5678",
-    startDate: "2023-10-01T00:00:00Z",
-    endDate: "2023-11-01T00:00:00Z",
-    claimers: 1250,
-    totalTokens: 1000000,
-    isEligible: true,
-    hasClaimed: false,
-    description: "Claim your Graphite governance tokens to participate in protocol decisions.",
-    type: "ERC20",
-    status: "active",
-  },
-  {
-    id: "2",
-    name: "Rapid Innovation",
-    symbol: "RPI",
-    amount: 50,
-    logoUrl: "https://picsum.photos/200/200?random=1",
-    tokenContractAddress: "0x1B8c7D6E5F4A3B2c1D0E9F7A6B5C4d3E2F1a0B9C",
-    creatorName: "Innovation Labs",
-    creatorAddress: "0xabcd...efgh",
-    startDate: "2023-09-15T00:00:00Z",
-    endDate: "2023-12-15T00:00:00Z",
-    claimers: 875,
-    totalTokens: 500000,
-    isEligible: true,
-    hasClaimed: false,
-    description: "RPI tokens for the most innovative DeFi platform.",
-    type: "ERC20",
-    status: "active",
-  },
-  {
-    id: "3",
-    name: "PwC Web3",
-    symbol: "PW3",
-    amount: 25,
-    logoUrl: "https://picsum.photos/200/200?random=2",
-    tokenContractAddress: "0x9F7A6B5C4d3E2F1a0B9C8D7E6F5A4B3c2D1E0F7A",
-    creatorName: "PwC Blockchain",
-    creatorAddress: "0xijkl...mnop",
-    startDate: "2023-10-10T00:00:00Z",
-    endDate: "2023-11-10T00:00:00Z",
-    claimers: 625,
-    totalTokens: 250000,
-    isEligible: true,
-    hasClaimed: false,
-    description: "Join the PwC Web3 ecosystem with these governance tokens.",
-    type: "ERC20",
-    status: "active",
-  },
-  {
-    id: "4",
-    name: "Harvard Review NFT",
-    symbol: "HBNFT",
-    amount: 1,
-    logoUrl: "https://picsum.photos/200/200?random=3",
-    tokenContractAddress: "0x8D7E6F5A4B3c2D1E0F7A6B5C4d3E2F1a0B9C9F7A",
-    creatorName: "Harvard Business",
-    creatorAddress: "0xqrst...uvwx",
-    startDate: "2023-10-20T00:00:00Z",
-    endDate: "2023-12-20T00:00:00Z",
-    claimers: 450,
-    totalTokens: 1000,
-    isEligible: false,
-    hasClaimed: false,
-    description: "Exclusive NFT for Harvard Business Review contributors.",
-    type: "ERC721",
-    status: "active",
-  },
-];
-
-const MOCK_ALL_AIRDROPS: AirdropData[] = [
-  ...MOCK_FEATURED_AIRDROPS,
-  {
-    id: "5",
-    name: "Tech Foundation",
-    symbol: "TECH",
-    amount: 200,
-    logoUrl: "https://picsum.photos/200/200?random=4",
-    tokenContractAddress: "0x6B5C4d3E2F1a0B9C9F7A8D7E6F5A4B3c2D1E0F7A",
-    creatorName: "Tech DAO",
-    creatorAddress: "0xyzab...cdef",
-    startDate: "2023-11-01T00:00:00Z",
-    endDate: "2024-01-01T00:00:00Z",
-    claimers: 0,
-    totalTokens: 2000000,
-    isEligible: false,
-    hasClaimed: false,
-    description: "Upcoming token for the decentralized tech foundation.",
-    type: "ERC20",
-    status: "upcoming",
-  },
-  {
-    id: "6",
-    name: "Game Credits",
-    symbol: "GAME",
-    amount: 500,
-    logoUrl: "https://picsum.photos/200/200?random=5",
-    tokenContractAddress: "0xcbcccE385aD801376B31d6038eee3D3A7E8F7351",
-    creatorName: "GameFi Protocol",
-    creatorAddress: "0xghij...klmn",
-    startDate: "2023-08-01T00:00:00Z",
-    endDate: "2023-09-01T00:00:00Z",
-    claimers: 1500,
-    totalTokens: 750000,
-    isEligible: true,
-    hasClaimed: true,
-    description: "Gaming tokens for the GameFi ecosystem.",
-    type: "ERC20",
-    status: "completed",
-  },
-  {
-    id: "7",
-    name: "Art Collection",
-    symbol: "ART",
-    amount: 1,
-    logoUrl: "https://picsum.photos/200/200?random=6",
-    tokenContractAddress: "0x306000D966A28CA768E2a3b84b63a7BCf4Cca58A",
-    creatorName: "Digital Artists",
-    creatorAddress: "0xopqr...stuv",
-    startDate: "2023-09-01T00:00:00Z",
-    endDate: "2023-10-01T00:00:00Z",
-    claimers: 750,
-    totalTokens: 1000,
-    isEligible: false,
-    hasClaimed: false,
-    description: "Digital art NFT collection for art enthusiasts.",
-    type: "ERC721",
-    status: "expired",
-  },
-  {
-    id: "8",
-    name: "Finance Protocol",
-    symbol: "FIN",
-    amount: 150,
-    logoUrl: "https://picsum.photos/200/200?random=7",
-    tokenContractAddress: "0xcbcccE385aD801376B31d6038eee3D3A7E8F7351",
-    creatorName: "DeFi Alliance",
-    creatorAddress: "0xwxyz...abcd",
-    startDate: "2023-10-15T00:00:00Z",
-    endDate: "2023-12-15T00:00:00Z",
-    claimers: 350,
-    totalTokens: 1500000,
-    isEligible: true,
-    hasClaimed: false,
-    description: "Governance tokens for the Finance Protocol.",
-    type: "ERC20",
-    status: "active",
-  },
-];
+import { useUserAirdrops } from "@/lib/hooks/useAirdrops";
+import { useAccount } from "wagmi";
 
 type FilterOptions = {
   status?: AirdropData['status'];
@@ -180,47 +22,37 @@ export default function AirdropExplorer() {
   const [filters, setFilters] = useState<FilterOptions>({});
   const [showFilters, setShowFilters] = useState(false);
   const [showConfetti, setShowConfetti] = useState(false);
-  const [airdrops, setAirdrops] = useState<AirdropData[]>(MOCK_ALL_AIRDROPS);
-  const [featuredAirdrops, setFeaturedAirdrops] = useState<AirdropData[]>(MOCK_FEATURED_AIRDROPS);
+  
+  const { 
+    allAirdrops: rawAirdrops, 
+    isLoading: isLoadingAirdrops, 
+    error: airdropsError 
+  } = useUserAirdrops();
+
+  const [allAirdropsData, setAllAirdropsData] = useState<AirdropData[]>([]);
+  const [featuredAirdrops, setFeaturedAirdrops] = useState<AirdropData[]>([]);
   const [selectedAirdrop, setSelectedAirdrop] = useState<AirdropData | null>(null);
 
-  // In a real implementation, this would fetch data from the blockchain
+  const { address: currentUserAddress } = useAccount();
+
   useEffect(() => {
-    // Mock data fetch
-    const fetchAirdrops = async () => {
-      try {
-        // In a real implementation, this would be a blockchain call
-        // const provider = new ethers.providers.Web3Provider(window.ethereum);
-        // const contract = new ethers.Contract(airdropFactoryAddress, airdropFactoryABI, provider);
-        // const allAirdrops = await contract.getAllAirdrops();
-        // const featuredAirdrops = allAirdrops.filter(airdrop => airdrop.isFeatured);
-        
-        // For now, just use mock data
-        setAirdrops(MOCK_ALL_AIRDROPS);
-        setFeaturedAirdrops(MOCK_FEATURED_AIRDROPS);
-      } catch (error) {
-        console.error("Error fetching airdrops:", error);
-      }
-    };
+    if (rawAirdrops) {
+      setAllAirdropsData(rawAirdrops);
+      const activeAirdrops = rawAirdrops.filter(a => a.status === 'active');
+      setFeaturedAirdrops(activeAirdrops.slice(0, Math.min(5, activeAirdrops.length)));
+    }
+  }, [rawAirdrops]);
 
-    fetchAirdrops();
-  }, []);
-
-  // Filter and search airdrops
-  const filteredAirdrops = airdrops.filter(airdrop => {
-    // Search query filter
+  const filteredAirdrops = allAirdropsData.filter(airdrop => {
     const matchesSearch = searchQuery === "" || 
       airdrop.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      airdrop.symbol.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      airdrop.creatorName.toLowerCase().includes(searchQuery.toLowerCase());
+      (airdrop.symbol && airdrop.symbol.toLowerCase().includes(searchQuery.toLowerCase())) ||
+      (airdrop.creatorName && airdrop.creatorName.toLowerCase().includes(searchQuery.toLowerCase()));
     
-    // Status filter
     const matchesStatus = !filters.status || airdrop.status === filters.status;
     
-    // Type filter
     const matchesType = !filters.type || airdrop.type === filters.type;
     
-    // Eligibility filter
     let matchesEligibility = true;
     if (filters.eligibility === 'eligible') {
       matchesEligibility = !!airdrop.isEligible && !airdrop.hasClaimed;
@@ -231,37 +63,25 @@ export default function AirdropExplorer() {
     return matchesSearch && matchesStatus && matchesType && matchesEligibility;
   });
 
-  const handleClaimAirdrop = async (airdrop: AirdropData) => {
+  const handleClaimAirdrop = async (claimedAirdrop: AirdropData): Promise<boolean> => {
     try {
-      // In a real implementation, this would be a blockchain call
-      // const provider = new ethers.providers.Web3Provider(window.ethereum);
-      // const signer = provider.getSigner();
-      // const contract = new ethers.Contract(airdropAddress, airdropABI, signer);
-      // const tx = await contract.claim();
-      // await tx.wait();
+      console.log(`Airdrop claim reported for ${claimedAirdrop.name} by AirdropCard.`);
       
-      // For now, just simulate success
-      console.log(`Claimed ${airdrop.amount} ${airdrop.symbol} tokens from ${airdrop.name}`);
+      const updateAirdropList = (list: AirdropData[]) => 
+        list.map(a => a.id === claimedAirdrop.id ? { ...a, hasClaimed: true, isEligible: false } : a);
       
-      // Update the airdrop in the state to reflect claimed status
-      const updateAirdrop = (list: AirdropData[]) => 
-        list.map(a => a.id === airdrop.id ? { ...a, hasClaimed: true } : a);
+      setAllAirdropsData(updateAirdropList);
       
-      setAirdrops(updateAirdrop);
-      setFeaturedAirdrops(updateAirdrop);
-      
-      // If the claimed airdrop is the selected one, update it as well
-      if (selectedAirdrop?.id === airdrop.id) {
-        setSelectedAirdrop({ ...selectedAirdrop, hasClaimed: true });
+      if (selectedAirdrop?.id === claimedAirdrop.id) {
+        setSelectedAirdrop(prev => prev ? { ...prev, hasClaimed: true, isEligible: false } : null);
       }
       
-      // Show confetti
       setShowConfetti(true);
       setTimeout(() => setShowConfetti(false), 3000);
 
       return true;
     } catch (error) {
-      console.error("Error claiming airdrop:", error);
+      console.error("Error in UI update after claiming airdrop:", error);
       return false;
     }
   };
@@ -274,9 +94,24 @@ export default function AirdropExplorer() {
     setSelectedAirdrop(null);
   };
 
+  if (isLoadingAirdrops) {
+    return (
+      <div className="relative flex min-h-screen w-full items-center justify-center bg-black text-white">
+        Loading airdrops...
+      </div>
+    );
+  }
+
+  if (airdropsError) {
+    return (
+      <div className="relative flex min-h-screen w-full items-center justify-center bg-black text-red-500">
+        Error loading airdrops: {airdropsError.message}
+      </div>
+    );
+  }
+
   return (
     <div className="relative min-h-screen w-full bg-black">
-      {/* Background effects */}
       <div className="fixed inset-0 -z-10 opacity-30">
         <Particles
           className="absolute inset-0"
@@ -288,7 +123,6 @@ export default function AirdropExplorer() {
 
       <Confetti trigger={showConfetti} duration={3000} />
 
-      {/* Detailed airdrop view modal */}
       {selectedAirdrop && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
           <div 
@@ -317,14 +151,13 @@ export default function AirdropExplorer() {
       <div className="container mx-auto px-4 py-8">
         <h1 className="mb-8 text-4xl font-bold text-white">Airdrop Explorer</h1>
 
-        {/* Featured Airdrops */}
         <div className="mb-8">
           <h2 className="mb-4 text-2xl font-semibold text-white">Featured Airdrops</h2>
           <Marquee
             speed={20}
             pauseOnHover={true}
             className="py-2"
-            autoFill={false}
+            autoFill={featuredAirdrops.length < 3}
           >
             {featuredAirdrops.map((airdrop) => (
               <div key={airdrop.id} className="mx-4 w-[350px]">
@@ -338,7 +171,6 @@ export default function AirdropExplorer() {
           </Marquee>
         </div>
 
-        {/* Search and Filters */}
         <GlassmorphismCard className="mb-8 p-6">
           <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <div className="relative flex-1">
@@ -363,7 +195,6 @@ export default function AirdropExplorer() {
             </motion.button>
           </div>
 
-          {/* Filter options */}
           {showFilters && (
             <motion.div
               initial={{ height: 0, opacity: 0 }}
@@ -372,7 +203,6 @@ export default function AirdropExplorer() {
               transition={{ duration: 0.3 }}
               className="mt-4 grid grid-cols-1 gap-4 overflow-hidden rounded-lg border border-gray-700 bg-gray-900/30 p-4 md:grid-cols-3"
             >
-              {/* Status filter */}
               <div>
                 <label className="mb-2 block text-sm text-gray-300">Status</label>
                 <select
@@ -388,7 +218,6 @@ export default function AirdropExplorer() {
                 </select>
               </div>
 
-              {/* Type filter */}
               <div>
                 <label className="mb-2 block text-sm text-gray-300">Token Type</label>
                 <select
@@ -402,7 +231,6 @@ export default function AirdropExplorer() {
                 </select>
               </div>
 
-              {/* Eligibility filter */}
               <div>
                 <label className="mb-2 block text-sm text-gray-300">Eligibility</label>
                 <select
@@ -419,7 +247,6 @@ export default function AirdropExplorer() {
           )}
         </GlassmorphismCard>
 
-        {/* All Airdrops */}
         <div>
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-2xl font-semibold text-white">All Airdrops</h2>
@@ -445,7 +272,7 @@ export default function AirdropExplorer() {
               <div className="mb-4 text-4xl text-gray-400">🔍</div>
               <h3 className="mb-2 text-xl font-medium text-white">No Airdrops Found</h3>
               <p className="text-gray-400">
-                Try adjusting your search or filters to find airdrops.
+                {rawAirdrops && rawAirdrops.length > 0 ? "Try adjusting your search or filters." : "There are currently no airdrops available."}
               </p>
             </GlassmorphismCard>
           )}

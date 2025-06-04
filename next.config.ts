@@ -25,6 +25,16 @@ const nextConfig: NextConfig = {
       },
       {
         protocol: 'https',
+        hostname: 'graphite-rouge.vercel.app',
+        pathname: '/api/badge-images/**',
+      },
+      {
+        protocol: 'https',
+        hostname: 'graphite-rouge.vercel.app',
+        pathname: '/trust-badges/**', // Allow trust badges from production
+      },
+      {
+        protocol: 'https',
         hostname: 'effigy.im',
         pathname: '/a/**', // For effigy.im URLs like /a/0x...svg
       },
