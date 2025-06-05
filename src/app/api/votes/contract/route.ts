@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createPublicClient, http } from 'viem';
-import { mainnet } from 'viem/chains';
 import { getContractConfig } from '@/lib/web3/contract-config';
+import { graphiteTestnet } from '@/components/web3/rainbow-kit-provider';
 
 export async function GET(request: NextRequest) {
   try {
@@ -14,8 +14,8 @@ export async function GET(request: NextRequest) {
     
     // Create a public client to interact with the blockchain
     const publicClient = createPublicClient({
-      chain: mainnet,
-      transport: http(process.env.NEXT_PUBLIC_RPC_URL || 'https://mainnet.infura.io/v3/your-infura-key')
+      chain: graphiteTestnet,
+      transport: http(process.env.NEXT_PUBLIC_RPC_URL || 'https://anon-entrypoint-test-1.atgraphite.com')
     });
     
     // Get the vote factory contract config

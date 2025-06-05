@@ -26,6 +26,7 @@ import { Particles } from "@/components/magicui/particles";
 import { Confetti } from "@/components/magicui/confetti";
 import { Button } from "@/components/ui/button";
 import { useCreateVote } from '@/lib/hooks/useVoting';
+import { SuccessTransactionModal } from '@/components/ui/success-transaction-modal';
 
 type VoteFormData = {
   description: string;
@@ -108,6 +109,7 @@ export default function CreateVotePage() {
   const [currentStep, setCurrentStep] = useState(0);
   const [formData, setFormData] = useState<VoteFormData>(initialFormData);
   const [showConfetti, setShowConfetti] = useState(false);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
   
   const {
     createVote,
@@ -122,19 +124,20 @@ export default function CreateVotePage() {
   // Handle successful vote creation
   useEffect(() => {
     if (isVoteCreated && createdVoteAddress) {
-      setShowConfetti(true);
-      setTimeout(() => setShowConfetti(false), 5000);
+      setShowSuccessModal(true);
     }
   }, [isVoteCreated, createdVoteAddress]);
   
-  // Redirect to the new vote page when created
-  useEffect(() => {
-    if (createdVoteAddress) {
-      setTimeout(() => {
-        router.push(`/votes/${createdVoteAddress}`);
-      }, 3000);
-    }
-  }, [createdVoteAddress, router]);
+  // Navigate to the vote page
+  const handleViewVote = () => {
+    router.push(`/votes/${createdVoteAddress}`);
+  };
+  
+  // Close the success modal
+  const handleCloseSuccessModal = () => {
+    setShowSuccessModal(false);
+    router.push('/votes');
+  };
   
   // Handle form input changes
   const handleChange = (section: keyof VoteFormData, field: string, value: any) => {
@@ -561,63 +564,6 @@ export default function CreateVotePage() {
     }
   };
   
-  if (isVoteCreated && createdVoteAddress) {
-    return (
-      <div className="relative min-h-screen w-full bg-black">
-        <div className="fixed inset-0 -z-10 opacity-30">
-          <Particles
-            className="absolute inset-0"
-            quantity={30}
-            staticity={50}
-            color="#ffffff"
-          />
-        </div>
-        
-        <Confetti trigger={showConfetti} duration={5000} />
-        
-        <div className="container mx-auto flex flex-col items-center justify-center px-4 py-16">
-          <AnimatedBeamsContainer
-            beams={5}
-            colorFrom="rgba(59, 130, 246, 0.6)"
-            colorTo="rgba(236, 72, 153, 0.6)"
-            className="h-32 w-32 rounded-full"
-          >
-            <div className="flex h-full w-full items-center justify-center">
-              <CheckCircle className="h-16 w-16 text-green-400" />
-            </div>
-          </AnimatedBeamsContainer>
-          
-          <h1 className="mt-6 text-3xl font-bold text-white">Vote Created!</h1>
-          <p className="mt-2 text-center text-lg text-gray-300">
-            Your vote has been successfully created. Transaction: 
-            <a href={`https://etherscan.io/tx/${txHash}`} target="_blank" rel="noopener noreferrer" className="underline ml-1">{txHash?.substring(0,10)}...</a>
-          </p>
-          
-          <p className="mt-4 text-center text-gray-400">
-            Redirecting to your vote page...
-          </p>
-          
-          <div className="mt-8 flex space-x-4">
-            <Button
-              className="rounded-lg bg-gradient-to-r from-green-600 to-green-700 px-6 py-3 text-white shadow-lg hover:from-green-500 hover:to-green-600"
-              onClick={() => router.push(`/votes/${createdVoteAddress}`)}
-            >
-              View Vote
-            </Button>
-            
-            <Button
-              variant="outline"
-              className="rounded-lg border border-gray-700 bg-transparent px-6 py-3 text-white shadow-lg hover:bg-gray-800"
-              onClick={() => router.push('/votes')}
-            >
-              Back to Votes
-            </Button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-  
   return (
     <div className="relative min-h-screen w-full bg-black">
       <div className="fixed inset-0 -z-10 opacity-30">
@@ -628,6 +574,18 @@ export default function CreateVotePage() {
           color="#ffffff"
         />
       </div>
+
+      {/* Success Transaction Modal */}
+      <SuccessTransactionModal
+        isOpen={showSuccessModal}
+        onClose={handleCloseSuccessModal}
+        title="Vote Created Successfully!"
+        message="Your vote has been created and is now available for the community."
+        txHash={txHash}
+        entityAddress={createdVoteAddress || undefined}
+        entityType="vote"
+        onViewEntity={handleViewVote}
+      />
       
       <div className="container mx-auto px-4 py-8">
         <div className="mb-4">

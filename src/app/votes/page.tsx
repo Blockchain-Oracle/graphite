@@ -144,7 +144,7 @@ export default function VotesPage() {
                   <div className="mb-4 space-y-2">
                     <div className="flex items-center text-sm text-gray-400">
                       <Users className="mr-2 h-4 w-4" />
-                      <span>{vote.totalVotes.toString()} votes</span>
+                      <span>{vote.totalVotes?.toString() || 0} votes</span>
                     </div>
                     
                     <div className="flex items-center text-sm text-gray-400">

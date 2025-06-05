@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createPublicClient, http, formatUnits } from 'viem';
 import { mainnet } from 'viem/chains';
 import { getContractConfig } from '@/lib/web3/contract-config';
-
+import { graphiteTestnet } from '@/components/web3/rainbow-kit-provider';
 export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams;
@@ -15,8 +15,8 @@ export async function GET(request: NextRequest) {
     
     // Create a public client to interact with the blockchain
     const publicClient = createPublicClient({
-      chain: mainnet,
-      transport: http(process.env.NEXT_PUBLIC_RPC_URL || 'https://mainnet.infura.io/v3/your-infura-key')
+      chain: graphiteTestnet,
+      transport: http(process.env.NEXT_PUBLIC_RPC_URL || 'https://anon-entrypoint-test-1.atgraphite.com')
     });
     
     // Get the vote contract ABI
@@ -160,17 +160,26 @@ export async function GET(request: NextRequest) {
     const voteData = {
       address: address as `0x${string}`,
       description,
-      options,
-      startTime,
-      endTime,
-      requiredTrustScore,
-      requiredKYCLevel,
+      options: options.map(opt => ({
+        index: opt.index,
+        text: opt.text,
+        voteCount: (opt.voteCount as bigint).toString()
+      })),
+      startTime: (startTime as bigint).toString(),
+      endTime: (endTime as bigint).toString(),
+      requiredTrustScore: (requiredTrustScore as bigint).toString(),
+      requiredKYCLevel: (requiredKYCLevel as bigint).toString(),
       requiredToken: requiredToken === '0x0000000000000000000000000000000000000000' ? null : requiredToken,
-      requiredTokenBalance,
-      totalVotes,
+      requiredTokenBalance: (requiredTokenBalance as bigint).toString(),
+      totalVotes: (totalVotes as bigint).toString(),
       proposalCreator,
       hasUserVoted,
-      userEligibility
+      userEligibility: userEligibility ? {
+        ...userEligibility,
+        userTrustScore: (userEligibility.userTrustScore as bigint).toString(),
+        userKycLevel: (userEligibility.userKycLevel as bigint).toString(),
+        userTokenBalance: (userEligibility.userTokenBalance as bigint).toString()
+      } : null
     };
     
     return NextResponse.json(voteData);

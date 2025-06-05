@@ -91,8 +91,9 @@ export default function VoteDetailPage() {
     
     const totalVotes = voteData.totalVotes;
     const percentages = voteData.options.map(option => {
+      console.log(option.voteCount);
       if (totalVotes === BigInt(0)) return 0;
-      return Number((option.voteCount * BigInt(100)) / totalVotes);
+      return Number((option.voteCount * 100) / Number(totalVotes));
     });
     
     return { totalVotes, percentages };
@@ -315,7 +316,7 @@ export default function VoteDetailPage() {
                       <div>
                         <h3 className="font-medium text-white">{option.text}</h3>
                         <p className="text-sm text-gray-400">
-                          {option.voteCount.toString()} vote{option.voteCount === BigInt(1) ? '' : 's'}
+                          {option.voteCount} vote{option.voteCount === 1 ? '' : 's'}
                         </p>
                       </div>
                       

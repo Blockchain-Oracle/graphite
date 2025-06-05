@@ -17,7 +17,8 @@ export const CONTRACT_ADDRESSES = {
   trustScoreAdapter: process.env.NEXT_PUBLIC_TRUST_SCORE_ADAPTER_CONTRACT || '0xDefaultTrustScoreAdapterAddress',
   airdropFactory: process.env.NEXT_PUBLIC_AIRDROP_FACTORY_CONTRACT || '0xDefaultAirdropFactoryAddress',
   sybilResistantAirdrop: process.env.NEXT_PUBLIC_AIRDROP_FACTORY_CONTRACT || '0xDefaultAirdropFactoryAddressa',
-  voteFactory: process.env.NEXT_PUBLIC_VOTE_FACTORY_CONTRACT || '0xDefaultVoteFactoryAddress',
+  voteFactory: process.env.NEXT_PUBLIC_VOTE_FACTORY_CONTRACT || '0x5FbDB2315678afecb367f032d93F642f64180aa3',
+  vote: process.env.NEXT_PUBLIC_VOTE_CONTRACT || '0x0000000000000000000000000000000000000000', // Placeholder address, actual addresses are fetched dynamically
   // Native Graphite system contracts
   reputation: '0x0000000000000000000000000000000000001008',
   kyc: '0x0000000000000000000000000000000000001001',

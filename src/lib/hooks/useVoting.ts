@@ -15,7 +15,7 @@ import { type Log } from 'viem';
 export type VoteOption = {
   index: number;
   text: string;
-  voteCount: bigint;
+  voteCount: number;
 };
 
 export type VoteData = {

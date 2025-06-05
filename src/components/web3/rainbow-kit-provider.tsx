@@ -8,7 +8,7 @@ import { WagmiProvider, http, createConfig } from 'wagmi';
 import { Chain } from 'wagmi/chains';
 
 // Define Graphite Testnet
-const graphiteTestnet = {
+export const graphiteTestnet = {
   id: 54170,
   name: 'Graphite Testnet',
   nativeCurrency: {
@@ -36,7 +36,7 @@ const graphiteTestnet = {
 } as const satisfies Chain;
 
 // Define Graphite Mainnet
-const graphiteMainnet = {
+export const graphiteMainnet = {
   id: 440017,
   name: 'Graphite Mainnet',
   nativeCurrency: {
