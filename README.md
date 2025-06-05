@@ -11,6 +11,21 @@
   [![Web3](https://img.shields.io/badge/Web3-Enabled-brightgreen?style=for-the-badge&logo=ethereum)](https://ethereum.org/)
 </div>
 
+## 🎬 Demo Video
+
+<div align="center">
+  <a href="https://youtu.be/06Kd-yGAZMg" target="_blank">
+    <img src="https://img.youtube.com/vi/06Kd-yGAZMg/maxresdefault.jpg" alt="Graphite Demo Video" width="600" />
+  </a>
+  <p>Click the image above to watch the demo video</p>
+</div>
+
+## 🏆 Hackathon Project
+
+This project was built for the [Graphite Network Reputation Hackathon](https://dorahacks.io/hackathon/graphitenetwork/buidl).
+
+Check out our project submission: [Graphite on DoraHacks](https://dorahacks.io/buidl/26725)
+
 ## 🌐 Live Demo
 
 - **Main Demo**: [https://graphite-rouge.vercel.app/](https://graphite-rouge.vercel.app/)
