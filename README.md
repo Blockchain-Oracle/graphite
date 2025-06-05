@@ -24,7 +24,7 @@
 
 This project was built for the [Graphite Network Reputation Hackathon](https://dorahacks.io/hackathon/graphitenetwork/buidl).
 
-Check out our project submission: [Graphite on DoraHacks](https://dorahacks.io/buidl/26725)
+Check out my project submission: [Graphite on DoraHacks](https://dorahacks.io/buidl/26725)
 
 ## 🌐 Live Demo
 
