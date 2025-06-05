@@ -1,0 +1,39 @@
+{
+  "name": "graphite-deployment",
+  "version": "1.0.0",
+  "description": "Hardhat deployment for Graphite Trust NFT",
+  "main": "index.js",
+  "scripts": {
+    "compile": "hardhat compile",
+    "deploy:nft": "hardhat run deploy-nft.js --network graphite_testnet",
+    "deploy:factory": "hardhat run deploy-factory.js --network graphite_testnet",
+    "deploy:ecosystem": "hardhat run deploy-ecosystem.js --network graphite_testnet",
+    "deploy:vote-factory": "hardhat run deploy-vote-factory.js --network graphite_testnet",
+    "create:vote": "hardhat run create-vote.js --network graphite_testnet",
+    "cast:vote": "hardhat run cast-vote.js --network graphite_testnet",
+    "transfer:ownership": "hardhat run transfer-ownership.js --network graphite_testnet",
+    "deploy:nft:mainnet": "hardhat run deploy-nft.js --network graphite",
+    "deploy:factory:mainnet": "hardhat run deploy-factory.js --network graphite",
+    "deploy:ecosystem:mainnet": "hardhat run deploy-ecosystem.js --network graphite",
+    "deploy:vote-factory:mainnet": "hardhat run deploy-vote-factory.js --network graphite",
+    "create:vote:mainnet": "hardhat run create-vote.js --network graphite",
+    "cast:vote:mainnet": "hardhat run cast-vote.js --network graphite",
+    "transfer:ownership:mainnet": "hardhat run transfer-ownership.js --network graphite",
+    "check:balance": "hardhat run scripts/check-balance.js --network graphite_testnet",
+    "check:balance:mainnet": "hardhat run scripts/check-balance.js --network graphite",
+    "mint:nft:testnet": "hardhat run mint-nft.js --network graphite_testnet",
+    "deploy:token:testnet": "hardhat run deploy-token.js --network graphite_testnet",
+    "create:airdrop:testnet": "hardhat run create-airdrop-with-token.js --network graphite_testnet",
+    "deploy:multi-airdrop:testnet": "hardhat run deployAndCreateAirdrop.js --network graphite_testnet",
+    "deploy:multi-airdrop:mainnet": "hardhat run deployAndCreateAirdrop.js --network graphite"
+  },
+  "dependencies": {
+    "@nomiclabs/hardhat-ethers": "^2.2.3",
+    "@openzeppelin/contracts": "4.8.2",
+    "dotenv": "^16.0.3",
+    "ethers": "^5.7.2",
+    "hardhat": "^2.16.0",
+    "keccak256": "^1.0.6",
+    "merkletreejs": "^0.5.2"
+  }
+}
