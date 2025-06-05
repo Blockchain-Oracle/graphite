@@ -40,6 +40,7 @@ Graphite is a next-generation reputation ecosystem for Web3, solving the crucial
 - **Visual representation of trust** through NFT badges that evolve with user reputation
 - **KYC verification** without compromising on privacy or decentralization principles
 - **Cross-platform reputation** that persists across the Web3 ecosystem
+- **Sybil-resistant voting** that ensures governance decisions are made by trusted community members
 
 ## 🔑 Key Features
 
@@ -72,6 +73,16 @@ Dynamic badges that represent a user's standing in the ecosystem:
 - **On-chain verification** of user's reputation
 - **Customizable appearance** for personal expression
 - **3D visualization** using React Three Fiber
+
+### Sybil-Resistant Voting
+
+Create and participate in community votes with trust-based eligibility:
+
+- **Trust score requirements** to ensure quality participation
+- **KYC-level verification** for sensitive governance decisions
+- **Token-gated voting** for stakeholder-specific proposals
+- **Customizable voting periods** with flexible start and end times
+- **Real-time result visualization** with percentage breakdowns
 
 ### KYC and Reputation
 
@@ -121,7 +132,7 @@ NEXT_PUBLIC_REPUTATION_ECOSYSTEM_CONTRACT=0xda468E6409F715d61c44DD53A75e58ea5265
 NEXT_PUBLIC_TRUST_NFT_CONTRACT=0x4f0C27955880D3D5014eD90AC93871dc643d524F
 NEXT_PUBLIC_TRUST_SCORE_ADAPTER_CONTRACT=0x98AD158893AE8d0f73fbfDB1E6dA616D5fB1Fb19
 NEXT_PUBLIC_AIRDROP_FACTORY_CONTRACT=0xcbcccE385aD801376B31d6038eee3D3A7E8F7351
-NEXT_VOTE_FACTORY_ADDRESS=0x9464cD055caEC197d06Fc119Bb4a9a6E94596697
+NEXT_PUBLIC_VOTE_FACTORY_ADDRESS=0x9464cD055caEC197d06Fc119Bb4a9a6E94596697
 
 # Optional: WalletConnect ID (for production)
 NEXT_PUBLIC_WALLET_CONNECT_ID=your_wallet_connect_id
@@ -140,6 +151,7 @@ graphite-frontend/
 │   │   ├── airdrops/       # Airdrop-related pages
 │   │   ├── dashboard/      # User dashboard
 │   │   ├── nfts/           # Trust NFT pages
+│   │   ├── votes/          # Voting system pages
 │   │   └── profile/        # User profile
 │   ├── components/         # UI components
 │   │   ├── landing/        # Landing page sections
@@ -151,6 +163,45 @@ graphite-frontend/
 │       └── web3/           # Web3 integration
 │           └── abis/       # Contract ABIs
 └── .env                    # Environment variables
+```
+
+### System Architecture
+
+```
+┌─────────────────────────────────┐
+│  GraphiteReputationEcosystem    │(Orchestrator)
+│  - Manages user interactions    │
+│  - Calls Graphite System Contracts│
+│  - Owns GraphiteTrustNFT        │
+└───────┬────┬─────┬────┬────────┘
+        │    │     │    │
+        ▼    │     ▼    │
+┌───────────────┐ │ ┌───────────────┐
+│GraphiteTrustNFT │ │GraphiteAirdrop│     ┌───────────────┐
+│- ERC721 Badges│ │Factory        │     │GraphiteVote   │
+│- Dynamic URI  │ │- Creates Sybil│     │Factory        │
+│- Tier System  │ │ ResistantAidrops│◄───┤- Creates Sybil│
+└───────┬───────┘ │└───────┬───────┘     │ ResistantVotes│
+        │         │        │             └───────┬───────┘
+        ▼         │        ▼                     │
+┌───────────────┐ │ ┌────────────────────┐      │
+│GraphiteTrust  │ │ │SybilResistantAirdrop │    ▼
+│ScoreAdapter   │ │ │- Token Distribution │ ┌────────────────────┐
+│- Converts Rep │ │ │- Enforces Eligibility│ │GraphiteVote        │
+│  to TrustScore│ │ │- Calls Graphite Sys │ │- Voting Mechanism   │
+└───────┬───────┘ │ └──────────┬─────────┘ │- Enforces Eligibility│
+        │         │            │           │- Calls Graphite Sys  │
+        └─────────┼────────────┼───────────┘
+                  │            │
+                  ▼            ▼
+┌───────────────────────────────────────────────────┐
+│              Graphite System Contracts            │
+│                                                   │
+│  - Reputation (REPUTATION_CONTRACT_ADDRESS)       │
+│  - KYC (KYC_CONTRACT_ADDRESS)                     │
+│  - Fee/Activation (FEE_CONTRACT_ADDRESS)          │
+│  - Filter (FILTER_CONTRACT_ADDRESS)               │
+└───────────────────────────────────────────────────┘
 ```
 
 ### Smart Contract Integration
@@ -177,6 +228,16 @@ The frontend interacts with the following key smart contracts:
    - Manages creator permissions
    - Handles token transfers for airdrops
 
+5. **GraphiteVoteFactory**: Creates new voting contracts
+   - Factory pattern for deploying sybil-resistant votes
+   - Enforces creator eligibility requirements
+   - Tracks all deployed vote contracts
+
+6. **GraphiteVote**: Individual voting contract instances
+   - Manages voting options and periods
+   - Enforces voter eligibility based on trust scores and KYC
+   - Tracks vote counts and user participation
+
 ## 🔄 Core Workflows
 
 ### Minting a Trust Badge
@@ -202,6 +263,23 @@ The frontend interacts with the following key smart contracts:
 4. Contract verifies eligibility with Merkle proof and trust requirements
 5. Tokens are transferred to the user's wallet
 
+### Creating a Vote
+
+1. User navigates to `/votes/create`
+2. Defines vote description and options
+3. Sets required trust score and KYC level
+4. Configures voting period start and end times
+5. Optionally adds token-gating requirements
+6. Deploys the vote contract
+
+### Participating in a Vote
+
+1. User views available votes at `/votes`
+2. Clicks on a vote to view details
+3. If eligible based on trust score and KYC level, selects an option
+4. Submits their vote through a blockchain transaction
+5. Real-time results update to reflect the new vote
+
 ## 📱 Features Showcase
 
 ### Trust NFT Gallery
@@ -223,6 +301,14 @@ The full-featured airdrop discovery tool at `/airdrops/explore` allows filtering
 - Eligibility based on user's trust score
 - Token type (ERC20, ERC721)
 
+### Voting System
+
+The comprehensive voting platform at `/votes` enables:
+- Browsing active, upcoming, and completed votes
+- Creating new votes with customizable requirements
+- Participating in votes based on eligibility
+- Viewing real-time results with visual breakdowns
+
 ## 🧪 Testing
 
 ```bash
@@ -240,6 +326,8 @@ pnpm test:e2e
 - [ ] Enhanced 3D visualizations for Trust NFTs
 - [ ] Integration with additional DeFi platforms
 - [ ] DAO governance for trust parameter tuning
+- [ ] Quadratic voting implementation
+- [ ] Delegation mechanisms for voting power
 
 ## 🛠️ Built With
 
@@ -251,6 +339,7 @@ pnpm test:e2e
 - [RainbowKit](https://www.rainbowkit.com/) - Wallet connection
 - [React Three Fiber](https://docs.pmnd.rs/react-three-fiber/) - 3D rendering
 - [Framer Motion](https://www.framer.com/motion/) - Animations
+- [Magic UI](https://magic-ui.vercel.app/) - Visual effects and animations
 
 ## 📄 License
 

@@ -49,22 +49,12 @@ export function AirdropCard({
   isClickable = true,
   onClick,
 }: AirdropCardProps) {
-  const [showConfetti, setShowConfetti] = useState(false);
   const [isClaiming, setIsClaiming] = useState(false);
 
-  const handleClaim = async (e: React.MouseEvent) => {
+  const handleClaim = (e: React.MouseEvent) => {
     e.stopPropagation(); // Prevent triggering card click when claiming
-    if (onClaim && airdrop.isEligible && !airdrop.hasClaimed) {
-      setIsClaiming(true);
-      try {
-        await onClaim(airdrop);
-        setShowConfetti(true);
-        setTimeout(() => setShowConfetti(false), 3000);
-      } catch (error) {
-        console.error("Error claiming airdrop:", error);
-      } finally {
-        setIsClaiming(false);
-      }
+    if (onClick && airdrop.isEligible && !airdrop.hasClaimed) {
+      onClick(); // This should open the detail modal
     }
   };
 
@@ -142,12 +132,11 @@ export function AirdropCard({
 
   return (
     <>
-      {showConfetti && <Confetti trigger={showConfetti} duration={3000} />}
-      
       <GlassmorphismCard 
         className={cn(
           "relative overflow-hidden transition-all",
           isClickable && "cursor-pointer hover:scale-[1.01]",
+          airdrop.hasClaimed && "opacity-70", // Dim the card if claimed
           className
         )}
         onClick={handleCardClick}

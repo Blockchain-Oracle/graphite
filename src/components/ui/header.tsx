@@ -40,6 +40,14 @@ const navItems: NavItem[] = [
       { label: "My Collection", href: "/nfts/gallery?filter=owned" }
     ]
   },
+  { 
+    label: "Votes", 
+    href: "/votes", 
+    children: [
+      { label: "All Votes", href: "/votes" },
+      { label: "Create Vote", href: "/votes/create" }
+    ]
+  },
   { label: "Profile", href: "/profile" }
 ];
 

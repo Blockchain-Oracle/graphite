@@ -237,6 +237,11 @@ export function useAirdropClaim(airdropAddress?: `0x${string}`) {
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({
     hash,
   });
+  
+  // Computed property to check if merkle proof exists
+  const hasMerkleProof = useMemo(() => {
+    return merkleProof.length > 0;
+  }, [merkleProof]);
 
   // Check eligibility and claim status
   useEffect(() => {
@@ -315,13 +320,13 @@ export function useAirdropClaim(airdropAddress?: `0x${string}`) {
   }, [address, airdropAddress, config]);
 
   // Function to claim the airdrop
-  const claimAirdrop = async () => {
+  const claimAirdrop = async (manualProof?: `0x${string}`[]) => {
     if (!airdropAddress || !address) {
       throw new Error('Airdrop address or user address not provided');
     }
 
     // This is where you'd verify the user meets all eligibility requirements
-    const { isActivated, trustScore, kycLevel, isBlacklisted, hasClaimedAirdrop } = eligibilityDetails;
+    const { isActivated, isBlacklisted, hasClaimedAirdrop } = eligibilityDetails;
     
     if (!isActivated) {
       throw new Error('Account not activated');
@@ -336,11 +341,16 @@ export function useAirdropClaim(airdropAddress?: `0x${string}`) {
     }
 
     try {
+      // Use manually provided proof if available, otherwise use the stored proof
+      const proofToUse = manualProof || merkleProof;
+      
       return await writeContractAsync({
         address: airdropAddress,
         abi: getContractConfig('sybilResistantAirdrop').abi,
         functionName: 'claim',
-        args: [claimAmount, merkleProof],
+        args: [claimAmount, proofToUse],
+        gasPrice: BigInt(30000000000), // 300 Gwei, from Hardhat config
+        gas: BigInt(3000000) 
       });
     } catch (error) {
       console.error("Error claiming airdrop:", error);
@@ -348,16 +358,10 @@ export function useAirdropClaim(airdropAddress?: `0x${string}`) {
     }
   };
 
-  // Determine if the user is eligible based on all criteria
-  const isEligible = eligibilityDetails.isActivated && 
-    !eligibilityDetails.isBlacklisted && 
-    !eligibilityDetails.hasClaimedAirdrop;
-
+  // Return values
   return {
-    // Split out individual eligibility details
     ...eligibilityDetails,
-    // Also provide the combined eligibility status
-    isEligible,
+    isEligible: eligibilityDetails.isActivated && !eligibilityDetails.isBlacklisted && !eligibilityDetails.hasClaimedAirdrop,
     claimAmount,
     merkleProof,
     isLoading,
@@ -367,6 +371,7 @@ export function useAirdropClaim(airdropAddress?: `0x${string}`) {
     isConfirming,
     isSuccess,
     hash,
+    hasMerkleProof,
   };
 }
 
@@ -710,7 +715,7 @@ export function getMerkleDataForAirdrop(airdropAddress: `0x${string}`, userAddre
     
     // Find the user's data
     const normalizedUserAddress = userAddress.toLowerCase();
-    const recipient = merkleData.recipients?.find(r => 
+    const recipient = merkleData.recipients?.find((r: { address: string; amount: bigint }) => 
       r.address.toLowerCase() === normalizedUserAddress
     );
     

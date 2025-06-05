@@ -95,23 +95,32 @@ export default function AirdropExplorer() {
     return matchesSearch && matchesStatus && matchesType && matchesEligibility;
   });
 
-  const handleClaimAirdrop = async (claimedAirdrop: AirdropData): Promise<boolean> => {
+  // Handle airdrop card click to show details
+  const handleAirdropClick = (airdrop: AirdropData) => {
+    setSelectedAirdrop(airdrop);
+    setIsModalOpen(true);
+  };
+
+  // Handle claim button on airdrop card
+  const handleAirdropCardClaim = (airdrop: AirdropData) => {
+    // Instead of directly claiming, open the modal with the selected airdrop
+    setSelectedAirdrop(airdrop);
+    setIsModalOpen(true);
+  };
+
+  // Handle the successful claim in the modal
+  const handleClaimSuccess = async (claimedAirdrop: AirdropData): Promise<boolean> => {
     try {
-      console.log(`Initiating airdrop claim for ${claimedAirdrop.name}`);
+      console.log(`Successful airdrop claim for ${claimedAirdrop.name}`);
       
-      // Here you would typically call the claimAirdrop function from useAirdropClaim
-      // Since this is a callback from a child component, we're just handling UI updates
-      // The actual transaction would be initiated in the AirdropCard component
-      
+      // Update the local state to reflect the claimed status
       const updateAirdropList = (list: AirdropData[]) => 
         list.map(a => a.id === claimedAirdrop.id ? { ...a, hasClaimed: true, isEligible: false } : a);
       
       setAllAirdropsData(updateAirdropList);
+      setFeaturedAirdrops(prev => updateAirdropList(prev));
       
-      if (selectedAirdrop?.id === claimedAirdrop.id) {
-        setSelectedAirdrop(prev => prev ? { ...prev, hasClaimed: true, isEligible: false } : null);
-      }
-      
+      // Show confetti
       setShowConfetti(true);
       setTimeout(() => setShowConfetti(false), 3000);
 
@@ -128,12 +137,6 @@ export default function AirdropExplorer() {
 
   const closeDetailView = () => {
     setSelectedAirdrop(null);
-  };
-
-  // Handle airdrop card click to show details
-  const handleAirdropClick = (airdrop: AirdropData) => {
-    setSelectedAirdrop(airdrop);
-    setIsModalOpen(true);
   };
 
   // Close the modal
@@ -218,7 +221,7 @@ export default function AirdropExplorer() {
                 <div key={airdrop.id} className="mx-4 w-[350px]">
                   <AirdropCard
                     airdrop={airdrop}
-                    onClaim={handleClaimAirdrop}
+                    onClaim={handleAirdropCardClaim}
                     onClick={() => handleAirdropClick(airdrop)}
                   />
                 </div>
@@ -317,7 +320,7 @@ export default function AirdropExplorer() {
                   <AirdropCard
                     key={airdrop.id}
                     airdrop={airdrop}
-                    onClaim={handleClaimAirdrop}
+                    onClaim={handleAirdropCardClaim}
                     onClick={() => handleAirdropClick(airdrop)}
                   />
                 ))}
@@ -340,7 +343,7 @@ export default function AirdropExplorer() {
             isOpen={isModalOpen}
             onClose={handleCloseModal}
             airdrop={selectedAirdrop}
-            onClaim={handleClaimAirdrop}
+            onClaim={handleClaimSuccess}
           />
         )}
       </div>

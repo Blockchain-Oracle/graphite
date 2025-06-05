@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion } from 'motion/react';
-import { AlertCircle, Calendar, Check, Clock, ExternalLink, User, X } from 'lucide-react';
+import { AlertCircle, Calendar, Check, Clock, ExternalLink, User, X, AlertTriangle, Upload, Info } from 'lucide-react';
 import { useAccount } from 'wagmi';
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { GlassmorphismCard } from "@/components/ui/glassmorphism-card";
@@ -10,6 +10,17 @@ import { Confetti } from "@/components/magicui/confetti";
 import { Meteors } from "@/components/magicui/meteors";
 import { type AirdropData } from './airdrop-card';
 import { useAirdropClaim } from '@/lib/hooks/useAirdrops';
+import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
+import { 
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 
 interface AirdropDetailViewProps {
   airdrop: AirdropData;
@@ -18,6 +29,12 @@ interface AirdropDetailViewProps {
 
 export function AirdropDetailView({ airdrop, onClaimSuccess }: AirdropDetailViewProps) {
   const [showConfetti, setShowConfetti] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [showErrorDialog, setShowErrorDialog] = useState(false);
+  const [proofError, setProofError] = useState(false);
+  const [manualProof, setManualProof] = useState<string>('');
+  const [showProofInput, setShowProofInput] = useState(false);
+  const [showClaimConfirmDialog, setShowClaimConfirmDialog] = useState(false);
   const { address } = useAccount();
   
   // Use the airdropClaim hook to get detailed eligibility info and claim functionality
@@ -34,7 +51,9 @@ export function AirdropDetailView({ airdrop, onClaimSuccess }: AirdropDetailView
     claimAirdrop,
     isClaimPending,
     isConfirming,
-    isSuccess
+    isSuccess,
+    merkleProof,
+    hasMerkleProof
   } = useAirdropClaim(airdrop.id as `0x${string}`);
 
   // Format date helper
@@ -49,14 +68,79 @@ export function AirdropDetailView({ airdrop, onClaimSuccess }: AirdropDetailView
     }).format(date);
   };
 
+  // Handle opening the claim confirmation dialog
+  const handleOpenClaimDialog = () => {
+    if (!isEligible || hasClaimedAirdrop) {
+      return;
+    }
+
+    // Check if Merkle proof is required but not available
+    if (!hasMerkleProof && airdrop.type === "ERC20") {
+      setShowProofInput(true);
+    } else {
+      setShowClaimConfirmDialog(true);
+    }
+  };
+  
+  // Parse manually entered proof
+  const parseManualProof = (): `0x${string}`[] => {
+    try {
+      // Try parsing as JSON array first
+      const proofText = manualProof.trim();
+      if (proofText.startsWith('[') && proofText.endsWith(']')) {
+        const proofArray = JSON.parse(proofText) as string[];
+        return proofArray.map(p => p as `0x${string}`);
+      }
+      
+      // Otherwise, split by commas, newlines, or spaces
+      return proofText
+        .split(/[\s,]+/)
+        .filter(p => p.startsWith('0x') && p.length === 66)
+        .map(p => p as `0x${string}`);
+    } catch (err) {
+      console.error("Failed to parse manual proof:", err);
+      return [];
+    }
+  };
+
+  // Handle manual proof submission
+  const handleSubmitManualProof = () => {
+    const parsedProof = parseManualProof();
+    if (parsedProof.length === 0) {
+      setErrorMessage("Invalid Merkle proof format. Please enter valid hex strings starting with 0x.");
+      setShowErrorDialog(true);
+      return;
+    }
+    
+    // Set the proof and continue to claim confirmation
+    setShowProofInput(false);
+    setShowClaimConfirmDialog(true);
+  };
+
   // Handle claim button click
   const handleClaim = async () => {
     if (!isEligible || hasClaimedAirdrop) {
       return;
     }
+
+    // Close the confirmation dialog
+    setShowClaimConfirmDialog(false);
+    
+    // Use manually entered proof if provided
+    const proofToUse = showProofInput && manualProof ? parseManualProof() : merkleProof;
+    
+    // Check if we have a valid proof now
+    if (!proofToUse.length && airdrop.type === "ERC20") {
+      setProofError(true);
+      setErrorMessage("Merkle proof not found or invalid. Please contact the airdrop creator to verify your eligibility.");
+      setShowErrorDialog(true);
+      return;
+    }
     
     try {
-      await claimAirdrop();
+      setErrorMessage(null);
+      // Pass the manual proof if we're using it
+      await claimAirdrop(showProofInput ? proofToUse : undefined);
       setShowConfetti(true);
       setTimeout(() => setShowConfetti(false), 3000);
       
@@ -64,8 +148,10 @@ export function AirdropDetailView({ airdrop, onClaimSuccess }: AirdropDetailView
       if (onClaimSuccess) {
         await onClaimSuccess(airdrop);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error("Claim failed:", err);
+      setErrorMessage(err?.message || "Failed to claim airdrop. Please try again later.");
+      setShowErrorDialog(true);
     }
   };
 
@@ -134,6 +220,17 @@ export function AirdropDetailView({ airdrop, onClaimSuccess }: AirdropDetailView
     }
 
     if (isEligible) {
+      if (!hasMerkleProof && airdrop.type === "ERC20") {
+        return {
+          state: 'no-proof',
+          content: (
+            <div className="flex items-center justify-center text-amber-400">
+              <AlertTriangle className="mr-2 h-5 w-5" /> Merkle proof required
+            </div>
+          )
+        };
+      }
+      
       return {
         state: 'eligible',
         content: <div className="flex items-center justify-center text-green-400"><Check className="mr-2 h-5 w-5" /> Eligible to claim</div>
@@ -242,6 +339,17 @@ export function AirdropDetailView({ airdrop, onClaimSuccess }: AirdropDetailView
           <div className="mb-6 space-y-4">
             <h3 className="text-sm font-medium text-gray-400">Your Eligibility</h3>
             
+            {/* Merkle proof warning if needed */}
+            {isEligible && !hasClaimedAirdrop && !hasMerkleProof && airdrop.type === "ERC20" && (
+              <Alert variant="warning" className="mb-4 bg-amber-500/10 text-amber-400 border-amber-500/20">
+                <AlertTriangle className="h-4 w-4" />
+                <AlertTitle>Merkle Proof Required</AlertTitle>
+                <AlertDescription>
+                  You need a Merkle proof to claim this airdrop. Click claim to provide it manually or contact the airdrop creator.
+                </AlertDescription>
+              </Alert>
+            )}
+            
             {/* Trust score if available */}
             {!isLoading && !error && (
               <div className="grid gap-4 md:grid-cols-2">
@@ -257,44 +365,199 @@ export function AirdropDetailView({ airdrop, onClaimSuccess }: AirdropDetailView
               </div>
             )}
             
-            <div className="rounded-lg bg-gray-800/50 p-4">
+            {/* Eligibility Status */}
+            <div className="rounded-lg border border-gray-700 bg-gray-800/50 p-4">
               {eligibilityInfo.content}
             </div>
           </div>
         )}
-
+        
         {/* Claim button */}
-        {address ? (
-          <>
-            {isEligible && !hasClaimedAirdrop && airdrop.status === 'active' && (
-              <CoolMode colors={["#3b82f6", "#8b5cf6", "#ec4899"]}>
-                <motion.button
-                  className="w-full rounded-lg bg-gradient-to-r from-blue-600 to-purple-600 px-4 py-3 text-white shadow-lg transition-all hover:from-blue-500 hover:to-purple-500 disabled:opacity-50"
-                  onClick={handleClaim}
-                  disabled={isClaimPending || isConfirming}
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                >
-                  {isClaimPending || isConfirming
-                    ? "Processing claim..."
-                    : `Claim ${airdrop.amount} ${airdrop.symbol}`}
-                </motion.button>
-              </CoolMode>
-            )}
+        {isEligible && !hasClaimedAirdrop && airdrop.status === 'active' && (
+          <CoolMode colors={["#3b82f6", "#8b5cf6", "#ec4899"]}>
+            <motion.button
+              className="w-full rounded-lg bg-gradient-to-r from-blue-600 to-purple-600 px-4 py-3 text-white shadow-lg transition-all hover:from-blue-500 hover:to-purple-500"
+              onClick={handleOpenClaimDialog}
+              disabled={isClaimPending || isConfirming}
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+            >
+              {isClaimPending || isConfirming ? (
+                <div className="flex items-center justify-center">
+                  <Clock className="mr-2 h-5 w-5 animate-spin" />
+                  {isClaimPending ? "Claiming..." : "Confirming..."}
+                </div>
+              ) : (
+                "Claim Airdrop"
+              )}
+            </motion.button>
+          </CoolMode>
+        )}
 
-            {hasClaimedAirdrop && (
-              <div className="flex items-center justify-center rounded-lg bg-green-500/10 px-4 py-3 text-green-400">
-                <Check className="mr-2 h-5 w-5" />
-                Claimed Successfully
-              </div>
-            )}
-          </>
-        ) : (
-          <div className="rounded-lg border border-blue-500/30 bg-blue-500/10 p-4 text-center text-blue-400">
-            Connect your wallet to check eligibility
+        {/* Not eligible message */}
+        {(!isEligible && !hasClaimedAirdrop && airdrop.status === 'active') && (
+          <div className="flex items-center justify-center rounded-lg bg-amber-500/10 px-4 py-3 text-amber-400">
+            <AlertCircle className="mr-2 h-5 w-5" />
+            Not Eligible to Claim
+          </div>
+        )}
+
+        {/* Claimed indicator */}
+        {hasClaimedAirdrop && (
+          <div className="flex items-center justify-center rounded-lg bg-green-500/10 px-4 py-3 text-green-400">
+            <Check className="mr-2 h-5 w-5" />
+            Claimed Successfully
           </div>
         )}
       </GlassmorphismCard>
+      
+      {/* Error Dialog */}
+      <Dialog open={showErrorDialog} onOpenChange={setShowErrorDialog}>
+        <DialogContent className="bg-gray-900 border border-gray-800">
+          <DialogHeader>
+            <DialogTitle className="text-white">Claim Error</DialogTitle>
+            <DialogDescription className="text-gray-400">
+              There was an error while claiming your airdrop
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="py-4">
+            <Alert variant="destructive" className="bg-red-900/20 border-red-500/30">
+              <AlertCircle className="h-4 w-4" />
+              <AlertTitle className="text-red-400">Failed to claim airdrop</AlertTitle>
+              <AlertDescription className="text-red-300">
+                {proofError ? (
+                  <>
+                    <p className="mb-2">Merkle proof not found for your address.</p>
+                    <p>This could mean:</p>
+                    <ul className="list-disc pl-5 mt-1">
+                      <li>You're not on the allowlist for this airdrop</li>
+                      <li>The proof data hasn't been loaded correctly</li>
+                      <li>There's a technical issue with the airdrop contract</li>
+                    </ul>
+                  </>
+                ) : (
+                  errorMessage || "An unknown error occurred"
+                )}
+              </AlertDescription>
+            </Alert>
+          </div>
+          
+          <DialogFooter>
+            <Button 
+              variant="outline" 
+              onClick={() => setShowErrorDialog(false)}
+              className="bg-transparent border border-gray-700 text-white hover:bg-gray-800"
+            >
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      
+      {/* Proof Input Dialog */}
+      <Dialog open={showProofInput} onOpenChange={setShowProofInput}>
+        <DialogContent className="bg-gray-900 border border-gray-800">
+          <DialogHeader>
+            <DialogTitle className="text-white">Enter Merkle Proof</DialogTitle>
+            <DialogDescription className="text-gray-400">
+              This airdrop requires a Merkle proof to verify your eligibility. Please paste your proof below.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="py-4 space-y-4">
+            <Alert variant="warning" className="bg-amber-500/10 border-amber-500/20 text-amber-400">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertTitle>Merkle Proof Required</AlertTitle>
+              <AlertDescription>
+                Contact the airdrop creator to obtain your Merkle proof if you don't have it.
+              </AlertDescription>
+            </Alert>
+            
+            <div className="space-y-2">
+              <label className="text-sm text-gray-300">Paste your Merkle Proof:</label>
+              <Textarea 
+                placeholder="[0x123..., 0x456...] or paste each hash on a new line"
+                className="h-32 bg-gray-800 border-gray-700 text-white"
+                value={manualProof}
+                onChange={(e) => setManualProof(e.target.value)}
+              />
+              <p className="text-xs text-gray-400">
+                Format: Array of hex strings or one hash per line, each starting with 0x
+              </p>
+            </div>
+          </div>
+          
+          <DialogFooter className="flex flex-col space-y-2 sm:space-y-0 sm:flex-row sm:justify-between">
+            <Button 
+              variant="outline" 
+              onClick={() => setShowProofInput(false)}
+              className="bg-transparent border border-gray-700 text-white hover:bg-gray-800"
+            >
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleSubmitManualProof}
+              className="bg-gradient-to-r from-blue-600 to-purple-600 text-white"
+            >
+              Submit Proof
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      
+      {/* Claim Confirmation Dialog */}
+      <Dialog open={showClaimConfirmDialog} onOpenChange={setShowClaimConfirmDialog}>
+        <DialogContent className="bg-gray-900 border border-gray-800">
+          <DialogHeader>
+            <DialogTitle className="text-white">Confirm Airdrop Claim</DialogTitle>
+            <DialogDescription className="text-gray-400">
+              You are about to claim {airdrop.amount} {airdrop.symbol} tokens.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="py-4">
+            <ShineBorderCard className="p-4" borderClassName="border border-gray-700">
+              <div className="flex justify-between items-center">
+                <h4 className="text-sm text-gray-400">Amount:</h4>
+                <p className="text-lg font-bold text-white">{airdrop.amount} {airdrop.symbol}</p>
+              </div>
+              <div className="flex justify-between items-center mt-2">
+                <h4 className="text-sm text-gray-400">Token:</h4>
+                <p className="text-sm text-white">{airdrop.name}</p>
+              </div>
+              <div className="flex justify-between items-center mt-2">
+                <h4 className="text-sm text-gray-400">Network:</h4>
+                <p className="text-sm text-white">Ethereum</p>
+              </div>
+            </ShineBorderCard>
+            
+            <Alert className="mt-4 bg-blue-500/10 border-blue-500/20 text-blue-400">
+              <Info className="h-4 w-4" />
+              <AlertTitle>Transaction Required</AlertTitle>
+              <AlertDescription>
+                Claiming requires a transaction. You will need to pay gas fees.
+              </AlertDescription>
+            </Alert>
+          </div>
+          
+          <DialogFooter className="flex flex-col space-y-2 sm:space-y-0 sm:flex-row sm:justify-between">
+            <Button 
+              variant="outline" 
+              onClick={() => setShowClaimConfirmDialog(false)}
+              className="bg-transparent border border-gray-700 text-white hover:bg-gray-800"
+            >
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleClaim}
+              className="bg-gradient-to-r from-green-600 to-green-700 text-white"
+            >
+              Confirm Claim
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 } 
