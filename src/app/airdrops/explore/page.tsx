@@ -12,8 +12,7 @@ import { Particles } from "@/components/magicui/particles";
 import { Confetti } from "@/components/magicui/confetti";
 import { useUserAirdrops } from "@/lib/hooks/useAirdrops";
 import { useAccount } from "wagmi";
-import { AirdropDetailView } from '@/components/web3/airdrop-detail-view';
-import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { AirdropModal } from '@/components/web3/airdrop-modal';
 
 type FilterOptions = {
   status: 'all' | 'upcoming' | 'active' | 'expired' | 'completed';
@@ -21,13 +20,6 @@ type FilterOptions = {
   search: string;
   eligibility: 'all' | 'eligible' | 'claimed';
 };
-
-interface DetailModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  airdrop: AirdropData | null;
-  onClaim: (airdrop: AirdropData) => Promise<boolean>;
-}
 
 export default function AirdropExplorer() {
   const [searchQuery, setSearchQuery] = useState("");
@@ -337,31 +329,14 @@ export default function AirdropExplorer() {
           </div>
         </div>
 
-        {/* Detail Modal */}
-        {selectedAirdrop && (
-          <DetailModal
-            isOpen={isModalOpen}
-            onClose={handleCloseModal}
-            airdrop={selectedAirdrop}
-            onClaim={handleClaimSuccess}
-          />
-        )}
+        {/* Use the new AirdropModal component */}
+        <AirdropModal
+          isOpen={isModalOpen}
+          onClose={handleCloseModal}
+          airdrop={selectedAirdrop}
+          onClaimSuccess={handleClaimSuccess}
+        />
       </div>
     </>
-  );
-}
-
-function DetailModal({ isOpen, onClose, airdrop, onClaim }: DetailModalProps) {
-  if (!airdrop) return null;
-  
-  return (
-    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-4xl bg-transparent border-0 shadow-none p-0">
-        <AirdropDetailView 
-          airdrop={airdrop}
-          onClaimSuccess={onClaim}
-        />
-      </DialogContent>
-    </Dialog>
   );
 } 

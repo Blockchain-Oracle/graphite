@@ -315,7 +315,7 @@ export function AirdropDetailView({ airdrop, onClaimSuccess }: AirdropDetailView
               </AvatarFallback>
             </Avatar>
             <a 
-              href={`https://explorer.graphite.eth/address/${airdrop.creatorAddress}`}
+              href={`https://test.atgraphite.com/address/${airdrop.creatorAddress}`}
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center text-blue-400 hover:text-blue-300"

@@ -349,7 +349,7 @@ export function useAirdropClaim(airdropAddress?: `0x${string}`) {
         abi: getContractConfig('sybilResistantAirdrop').abi,
         functionName: 'claim',
         args: [claimAmount, proofToUse],
-        gasPrice: BigInt(30000000000), // 300 Gwei, from Hardhat config
+        gasPrice: BigInt(300000000000), // 300 Gwei, from Hardhat config
         gas: BigInt(3000000) 
       });
     } catch (error) {
