@@ -233,6 +233,14 @@ export function AirdropCard({
             </CoolMode>
           )}
 
+          {/* Not eligible message */}
+          {(!airdrop.isEligible && !airdrop.hasClaimed && airdrop.status === 'active') && (
+            <div className="flex items-center justify-center rounded-lg bg-amber-500/10 px-4 py-3 text-amber-400">
+              <AlertCircle className="mr-2 h-5 w-5" />
+              Not Eligible to Claim
+            </div>
+          )}
+
           {/* Claimed indicator */}
           {airdrop.hasClaimed && (
             <div className="flex items-center justify-center rounded-lg bg-green-500/10 px-4 py-3 text-green-400">

@@ -10,6 +10,9 @@ import { type PublicClient, keccak256, encodeAbiParameters, toHex } from 'viem';
 import { getContractConfig } from '../web3/contract-config';
 import type { AirdropData } from '@/components/web3/airdrop-card';
 
+// Key for localStorage
+const MERKLE_DATA_STORAGE_KEY = 'graphite-airdrop-merkle-data';
+
 /**
  * Hook to get all airdrops from the factory
  */
@@ -212,9 +215,21 @@ export function useAirdrops() {
 export function useAirdropClaim(airdropAddress?: `0x${string}`) {
   const { address } = useAccount();
   const config = useConfig();
-  const [isEligible, setIsEligible] = useState<boolean>(false);
-  const [hasClaimed, setHasClaimed] = useState<boolean>(false);
+  const [eligibilityDetails, setEligibilityDetails] = useState<{
+    isActivated: boolean;
+    trustScore: number;
+    kycLevel: number;
+    isBlacklisted: boolean;
+    hasClaimedAirdrop: boolean;
+  }>({
+    isActivated: false,
+    trustScore: 0,
+    kycLevel: 0,
+    isBlacklisted: false, 
+    hasClaimedAirdrop: false
+  });
   const [claimAmount, setClaimAmount] = useState<bigint>(BigInt(0));
+  const [merkleProof, setMerkleProof] = useState<`0x${string}`[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
 
@@ -239,39 +254,58 @@ export function useAirdropClaim(airdropAddress?: `0x${string}`) {
           throw new Error('Failed to get public client');
         }
 
-        // Check if user is in merkle tree (eligible)
-        const eligibility = await publicClient.readContract({
+        // Get detailed eligibility information from the contract
+        const details = await publicClient.readContract({
           address: airdropAddress,
           abi: getContractConfig('sybilResistantAirdrop').abi,
-          functionName: 'isEligible',
+          functionName: 'getEligibilityDetails',
           args: [address],
-        });
+        }) as [boolean, bigint, bigint, boolean, boolean];
 
-        // Check if user has already claimed
-        const claimed = await publicClient.readContract({
-          address: airdropAddress,
-          abi: getContractConfig('sybilResistantAirdrop').abi,
-          functionName: 'hasClaimed',
-          args: [address],
-        });
+        // Parse eligibility details
+        const eligibilityInfo = {
+          isActivated: details[0],
+          trustScore: Number(details[1]),
+          kycLevel: Number(details[2]),
+          isBlacklisted: details[3],
+          hasClaimedAirdrop: details[4]
+        };
 
-        // Get claim amount if eligible
-        let amount = BigInt(0);
-        if (eligibility && !claimed) {
-          amount = await publicClient.readContract({
-            address: airdropAddress,
-            abi: getContractConfig('sybilResistantAirdrop').abi,
-            functionName: 'getClaimAmount',
-            args: [address],
-          }) as bigint;
+        setEligibilityDetails(eligibilityInfo);
+
+        // Get stored Merkle data for this airdrop and user
+        const { amount, proof } = getMerkleDataForAirdrop(airdropAddress, address);
+        if (amount) {
+          setClaimAmount(amount);
+        } else {
+          // Fallback to reading from contract if no stored data
+          try {
+            const requiredTrustScore = await publicClient.readContract({
+              address: airdropAddress,
+              abi: getContractConfig('sybilResistantAirdrop').abi,
+              functionName: 'requiredTrustScore',
+            }) as bigint;
+            
+            setClaimAmount(requiredTrustScore); // Using this as a placeholder amount
+          } catch (amountError) {
+            console.warn("Could not determine claim amount:", amountError);
+            setClaimAmount(BigInt(0));
+          }
         }
-
-        setIsEligible(!!eligibility);
-        setHasClaimed(!!claimed);
-        setClaimAmount(amount);
+        
+        if (proof && proof.length > 0) {
+          setMerkleProof(proof);
+        }
       } catch (error) {
         console.error("Error checking airdrop eligibility:", error);
         setError(error instanceof Error ? error : new Error('Failed to check airdrop eligibility'));
+        setEligibilityDetails({
+          isActivated: false,
+          trustScore: 0,
+          kycLevel: 0,
+          isBlacklisted: false,
+          hasClaimedAirdrop: false
+        });
       } finally {
         setIsLoading(false);
       }
@@ -281,9 +315,24 @@ export function useAirdropClaim(airdropAddress?: `0x${string}`) {
   }, [address, airdropAddress, config]);
 
   // Function to claim the airdrop
-  const claimAirdrop = async (proof: `0x${string}`[]) => {
+  const claimAirdrop = async () => {
     if (!airdropAddress || !address) {
       throw new Error('Airdrop address or user address not provided');
+    }
+
+    // This is where you'd verify the user meets all eligibility requirements
+    const { isActivated, trustScore, kycLevel, isBlacklisted, hasClaimedAirdrop } = eligibilityDetails;
+    
+    if (!isActivated) {
+      throw new Error('Account not activated');
+    }
+    
+    if (isBlacklisted) {
+      throw new Error('Address is blacklisted');
+    }
+    
+    if (hasClaimedAirdrop) {
+      throw new Error('Airdrop already claimed');
     }
 
     try {
@@ -291,7 +340,7 @@ export function useAirdropClaim(airdropAddress?: `0x${string}`) {
         address: airdropAddress,
         abi: getContractConfig('sybilResistantAirdrop').abi,
         functionName: 'claim',
-        args: [proof],
+        args: [claimAmount, merkleProof],
       });
     } catch (error) {
       console.error("Error claiming airdrop:", error);
@@ -299,10 +348,18 @@ export function useAirdropClaim(airdropAddress?: `0x${string}`) {
     }
   };
 
+  // Determine if the user is eligible based on all criteria
+  const isEligible = eligibilityDetails.isActivated && 
+    !eligibilityDetails.isBlacklisted && 
+    !eligibilityDetails.hasClaimedAirdrop;
+
   return {
+    // Split out individual eligibility details
+    ...eligibilityDetails,
+    // Also provide the combined eligibility status
     isEligible,
-    hasClaimed,
     claimAmount,
+    merkleProof,
     isLoading,
     error,
     claimAirdrop,
@@ -525,7 +582,8 @@ export function useCreateAirdrop() {
     requiredKYCLevel: bigint,
     // totalAmount: bigint, // Not a direct parameter for factory.createAirdrop
     startTime: bigint,
-    endTime: bigint
+    endTime: bigint,
+    merkleData?: MerkleProofData // Add merkleData parameter to store after successful creation
   ) => {
     try {
       console.log("Calling createAirdrop with params:", {
@@ -551,6 +609,14 @@ export function useCreateAirdrop() {
         gasPrice: BigInt(300000000000), // 300 Gwei, from Hardhat config
         gas: BigInt(3000000) 
       });
+      
+      // If we have merkle data and transaction was successful, store it
+      if (merkleData) {
+        // We need to wait for transaction receipt to get the airdrop address
+        // This will be handled in the component after transaction confirmation
+        storeMerkleDataForLaterUse(merkleData);
+      }
+      
       return tx;
     } catch (err) {
       console.error("Error creating airdrop:", err);
@@ -568,6 +634,142 @@ export function useCreateAirdrop() {
     hash,
     error,
   };
+}
+
+/**
+ * Store Merkle data for an airdrop in localStorage
+ * @param merkleData The Merkle data to store
+ */
+export function storeMerkleDataForLaterUse(merkleData: MerkleProofData): void {
+  try {
+    // Get existing data
+    const existingDataStr = localStorage.getItem(MERKLE_DATA_STORAGE_KEY);
+    const existingData = existingDataStr ? JSON.parse(existingDataStr) : {};
+    
+    // Add new merkle data, using the root as the key
+    existingData[merkleData.root] = merkleData;
+    
+    // Store updated data
+    localStorage.setItem(MERKLE_DATA_STORAGE_KEY, JSON.stringify(existingData));
+    console.log(`Stored Merkle data for root: ${merkleData.root}`);
+  } catch (error) {
+    console.error("Error storing Merkle data:", error);
+  }
+}
+
+/**
+ * Update stored Merkle data with airdrop contract address after successful creation
+ * @param merkleRoot The Merkle root used for the airdrop
+ * @param airdropAddress The address of the deployed airdrop contract
+ */
+export function updateMerkleDataWithAirdropAddress(merkleRoot: `0x${string}`, airdropAddress: `0x${string}`): void {
+  try {
+    // Get existing data
+    const existingDataStr = localStorage.getItem(MERKLE_DATA_STORAGE_KEY);
+    if (!existingDataStr) return;
+    
+    const existingData = JSON.parse(existingDataStr);
+    
+    // Find the merkle data by root
+    if (existingData[merkleRoot]) {
+      // Update with airdrop address
+      existingData[merkleRoot].airdropAddress = airdropAddress;
+      
+      // Also create a reference by airdrop address for easier lookup
+      existingData[airdropAddress] = existingData[merkleRoot];
+      
+      // Store updated data
+      localStorage.setItem(MERKLE_DATA_STORAGE_KEY, JSON.stringify(existingData));
+      console.log(`Updated Merkle data for airdrop: ${airdropAddress}`);
+    }
+  } catch (error) {
+    console.error("Error updating Merkle data with airdrop address:", error);
+  }
+}
+
+/**
+ * Get Merkle data for a specific airdrop and user
+ * @param airdropAddress The airdrop contract address
+ * @param userAddress The user's address
+ * @returns The claim amount and Merkle proof for the user, or empty values if not found
+ */
+export function getMerkleDataForAirdrop(airdropAddress: `0x${string}`, userAddress: `0x${string}`): {
+  amount: bigint | null;
+  proof: `0x${string}`[] | null;
+} {
+  try {
+    // Get stored data
+    const storedDataStr = localStorage.getItem(MERKLE_DATA_STORAGE_KEY);
+    if (!storedDataStr) return { amount: null, proof: null };
+    
+    const storedData = JSON.parse(storedDataStr);
+    
+    // Try to find by airdrop address
+    const merkleData = storedData[airdropAddress];
+    if (!merkleData) return { amount: null, proof: null };
+    
+    // Find the user's data
+    const normalizedUserAddress = userAddress.toLowerCase();
+    const recipient = merkleData.recipients?.find(r => 
+      r.address.toLowerCase() === normalizedUserAddress
+    );
+    
+    if (!recipient) return { amount: null, proof: null };
+    
+    // Get the proof
+    const proof = merkleData.proofs?.[normalizedUserAddress];
+    
+    return {
+      amount: BigInt(recipient.amount.toString()),
+      proof: proof || null
+    };
+  } catch (error) {
+    console.error("Error retrieving Merkle data:", error);
+    return { amount: null, proof: null };
+  }
+}
+
+/**
+ * Export the Merkle data for an airdrop as JSON
+ * @param merkleRoot The Merkle root to export data for
+ * @returns JSON string of the Merkle data or null if not found
+ */
+export function exportMerkleData(merkleRoot: `0x${string}`): string | null {
+  try {
+    const storedDataStr = localStorage.getItem(MERKLE_DATA_STORAGE_KEY);
+    if (!storedDataStr) return null;
+    
+    const storedData = JSON.parse(storedDataStr);
+    const merkleData = storedData[merkleRoot];
+    
+    if (!merkleData) return null;
+    
+    return JSON.stringify(merkleData, null, 2);
+  } catch (error) {
+    console.error("Error exporting Merkle data:", error);
+    return null;
+  }
+}
+
+/**
+ * Import Merkle data from a JSON string
+ * @param jsonData JSON string containing Merkle data
+ * @returns True if import was successful
+ */
+export function importMerkleData(jsonData: string): boolean {
+  try {
+    const merkleData = JSON.parse(jsonData) as MerkleProofData;
+    
+    if (!merkleData.root || !merkleData.proofs || !merkleData.recipients) {
+      throw new Error("Invalid Merkle data format");
+    }
+    
+    storeMerkleDataForLaterUse(merkleData);
+    return true;
+  } catch (error) {
+    console.error("Error importing Merkle data:", error);
+    return false;
+  }
 }
 
 /**

@@ -21,11 +21,14 @@ import {
   useCreateAirdrop, 
   useMerkleTree, 
   type AirdropRecipient, 
-  type MerkleProofData 
+  type MerkleProofData,
+  storeMerkleDataForLaterUse,
+  updateMerkleDataWithAirdropAddress
 } from "@/lib/hooks/useAirdrops";
 import { getContractConfig } from "@/lib/web3/contract-config";
-import { useAccount } from "wagmi";
-import { isAddress } from "viem";
+import { useAccount, useConfig } from "wagmi";
+import { isAddress, type Log, type TransactionReceipt } from "viem";
+import { getPublicClient } from "wagmi/actions";
 
 // Define the shape for a column in the CSVImporter template
 interface CSVColumn {
@@ -353,7 +356,8 @@ export default function CreateAirdrop() {
         requiredTrustScore,
         requiredKYCLevel,
         BigInt(Math.floor(new Date(formData.timing.startDate).getTime() / 1000)),
-        BigInt(Math.floor(new Date(formData.timing.endDate).getTime() / 1000))
+        BigInt(Math.floor(new Date(formData.timing.endDate).getTime() / 1000)),
+        merkleTreeHookData || undefined // Pass the merkle data if not null, otherwise undefined
       );
       // Success is handled by useEffect watching isCreateAirdropSuccess
     } catch (error) {
@@ -364,11 +368,64 @@ export default function CreateAirdrop() {
   
   // Handle success state for airdrop creation
   useEffect(() => {
-    if (isCreateAirdropSuccess) {
+    if (isCreateAirdropSuccess && createAirdropHash && merkleTreeHookData) {
       setShowConfetti(true);
       setTimeout(() => setShowConfetti(false), 5000);
+      
+      // Get the airdrop address from transaction receipt events
+      const getAirdropAddressAndUpdateMerkleData = async () => {
+        try {
+          const config = useConfig();
+          const publicClient = getPublicClient(config);
+          if (!publicClient) {
+            console.error("Failed to get public client");
+            return;
+          }
+          
+          // Wait for the transaction receipt
+          const receipt = await publicClient.waitForTransactionReceipt({
+            hash: createAirdropHash,
+          });
+          
+          // Find the AirdropCreated event
+          // The AirdropCreated event has the following signature:
+          // AirdropCreated(address indexed creator, address indexed tokenAddress, address airdropContract)
+          // The airdrop contract address is in the non-indexed parameter, so it's in the data field
+          const airdropFactoryAddress = getContractConfig('airdropFactory').address.toLowerCase();
+          
+          // Find logs from the airdrop factory
+          const factoryLogs = receipt.logs.filter((log: Log) => 
+            log.address.toLowerCase() === airdropFactoryAddress
+          );
+          
+          // Look for the AirdropCreated event topic
+          const airdropCreatedTopic = "0x0319f1f4517ea22a6dba50a26b08c276181429cafd5268e0835cff2e9dee671a";
+          const airdropCreatedLog = factoryLogs.find((log: Log) => 
+            log.topics && log.topics[0] && log.topics[0].toLowerCase() === airdropCreatedTopic.toLowerCase()
+          );
+          
+          if (airdropCreatedLog) {
+            // The airdrop contract address is in the data field as the only non-indexed parameter
+            // It's a 32-byte value starting at position 0
+            const airdropAddress = `0x${airdropCreatedLog.data.slice(26)}` as `0x${string}`;
+            console.log("Found airdrop address from event:", airdropAddress);
+            
+            // Update the merkle data with the airdrop address
+            if (merkleTreeHookData && merkleTreeHookData.root) {
+              updateMerkleDataWithAirdropAddress(merkleTreeHookData.root, airdropAddress);
+              console.log("Updated Merkle data with airdrop address");
+            }
+          } else {
+            console.warn("AirdropCreated event not found in transaction logs");
+          }
+        } catch (error) {
+          console.error("Error getting airdrop address from transaction receipt:", error);
+        }
+      };
+      
+      getAirdropAddressAndUpdateMerkleData();
     }
-  }, [isCreateAirdropSuccess]);
+  }, [isCreateAirdropSuccess, createAirdropHash, merkleTreeHookData]);
 
   const isNextDisabled = useMemo(() => {
     if (currentStep === 0) { // Token Selection
