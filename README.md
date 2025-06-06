@@ -1,7 +1,7 @@
 # Graphite: Web3 Reputation & Trust Ecosystem
 
 <div align="center">
-  <img src="https://raw.githubusercontent.com/Blockchain-Oracle/graphite/main/public/trust-badges/tier-5.svg" alt="Graphite Logo" width="150" />
+  <img src="https://raw.githubusercontent.com/Blockchain-Oracle/graphite/main/public/trust-badges/tier-5.svg" alt="GraphiteLogo" width="150" />
   <h3>Building Trust in Web3, One Score at a Time</h3>
   
   [![Next.js](https://img.shields.io/badge/Next.js-15-black?style=for-the-badge&logo=next.js)](https://nextjs.org/)
